@@ -1,0 +1,90 @@
+# Changelog
+
+版本真相：`VERSION.md`（現行產品字串）＋本檔（已出貨摘要）。各版契約細節以 `docs/roadmap/X.Y.Z/` 為準。
+
+---
+
+## 0.4.0 — NPC 分層記憶（池 + L2 現用 + dirty set）（2026-09-07）
+
+對局除世界 KB 外，NPC 有分層主觀記憶：L0／L1 同在 `npc-memory/pool.json`；升到 2 才有 `l2/{id}/current.json` 且永不降級。Default 瑪拉／灰開場即 L2（短常數）。Writer 在世界 KB 之後機械更新；不開第二模型。本版 **不寫** NPC archive、**不** compact jsonl。見 `docs/roadmap/0.4.0/`。
+
+### Added
+
+- Entity `memory_tier`（僅 `kind: "npc"`；缺欄當 0；非 npc 有值則 parse 失敗）
+- `kb/runtime/npc-memory/`：`pool.json`、`dirty-set.json`、`l2/{id}/current.json`
+- `GmContext.npc_memories`（僅 `scene.present`；對玩家 HTTP 不含此欄）
+- 升 2 原子寫入與測試注入回滾；L0 十二回合遺忘；custom 生成 1／2 改寫為 0
+- Archive 僅 zod 契約（`NpcArchiveIndexSchema`／`NpcArchiveEntrySchema`），回合／setup／new-game 不建 `archive/`
+
+### Changed
+
+- Default setup 寫瑪拉／灰 L2 current 與 dirty `touched`；custom 空池、無 `l2/`
+- `clearPlaythrough`／新遊戲 recursive 刪 `npc-memory/`
+- `prompts/gm-contract.md` 加不串台短規則（僅 pi system）
+
+### Non-goals
+
+- session compact、寫入 NPC `archive/`、第二模型、記憶編輯 UI、hop migrate 舊存檔
+
+---
+
+## 0.3.0 — NPC 人設離開 source；custom canon 改名（2026-09-06）
+
+執行期只寫 `kb/runtime/`。NPC 人設進 entity `persona`（seed copy 進 runtime）；對局只讀 runtime，不讀 repo `npc-*.md` 與 seed。Custom `gm_canon` 落在 `gm_canon.md`。`syncWorldGate`：custom 缺／空 canon 與無效 world 同形 `needs_setup`＋`world: null`。不做舊路徑 migrate。見 `docs/roadmap/0.3.0/`。
+
+### Changed
+
+- `Entity.persona`（optional；空 trim 當缺欄；非空 1–2000 UTF-16）；default 瑪拉／灰全文自原 npc markdown 遷入 seed
+- Default 對局 system＝`gm-contract.md` + `gm-default.md` + runtime persona；custom＝契約 + `gm_canon.md` + runtime persona
+- `commitCustomWorld` 寫 `gm_canon.md`；`clearPlaythrough` 刪該檔並仍刪殘 `runtime/prompts/`
+- 刪 repo `prompts/npc-*.md` 與殘留 `prompts/gm.md`
+- 引子洩漏檢查含 `persona`；生成器 userPrompt／retry 與 zod 同一套
+
+### Non-goals
+
+- 不 migrate 舊 `runtime/prompts/gm.md`；不恢復指紋；不改 `MemorySlice`；不把 GM 契約搬進 kb
+
+---
+
+## 0.2.0 — 世界起始劇本（default / custom primer）（2026-09-06）
+
+開局先選預設鏽燈酒館（`kb/seed/`）或自訂四段引子；引子經獨立 pi job 生成 KB，**使用者原文不是 seed**。完成 setup 後才進入既有回合迴圈。未完成時 `POST /api/turn` 回 409（`needs_setup: true`）。**無** KB runtime 結構 migrate（構想見 `docs/roadmap/backlog/kb-runtime-upgrade.md`）。見 `docs/roadmap/0.2.0/`。
+
+### Added
+
+- `world.json`（`source`：`default`｜`custom`、`title`、`created_at`）作為 setup commit 標記
+- `POST /api/setup/default`；`POST /api/setup/custom`（primer → 生成 seed）；`POST /api/new-game` 清空 runtime（含 `pi-sessions`）後只 `disposePlaySession`，回到起始選擇
+- Custom：獨立生成 session（`noTools`、不寫對局 jsonl）；mock 走霧港 harbor fixture，不打外網
+- Web：needs_setup 時起始選擇；header／`<title>`／placeholder 隨 `world.title`
+
+### Changed
+
+- `ensureRuntime` 不再偷灌 seed；測試灌 default 須顯式 `setupDefaultForTest`（或 `POST /api/setup/default`）
+- Default 對局 system＝`gm-contract.md` + `gm-default.md` + `npc-bartender.md` + `npc-ash.md`；custom＝契約前綴 + runtime `gm_canon`
+- `createPlaySession` 僅 ready 之後依 `world.source` 組 prompt；禁止 `resetPiGm`（dispose 後立刻開酒館 session）
+- Coerce 禁止預設酒館；缺 `gm_note` →「本場進行中。」
+- **有效** `world.json` → ready；缺檔或無效 → setup，無效檔不改寫。不依 `kb/seed` id 救援舊局
+
+### Non-goals
+
+- 多存檔槽、多地點、戰鬥、生圖、真多 agent NPC、session compact、KB store migrate
+- 改 OpenRouter 直連（仍只經 pi）
+- 把 NPC 人設遷出 repo `prompts/`（0.3.0 已做）
+
+---
+
+## 0.1.0 — 鏽燈酒館 POC（一回合迴圈）（2026-09-05）
+
+單一地點鏽燈酒館可玩：玩家 + 瑪拉 + 灰 + 一條紙條線索。Program（Bun）管回合；GM 為 pi 接續 session（或 mock）；Writer 落 Episode／Entity／Relation。開服空庫即 copy `kb/seed/`；開頁直接對話，無 setup。**無** `world.json`、**無** compact。見 `docs/roadmap/0.1.0/`（事後補寫）。
+
+### Added
+
+- Web UI 對話迴圈；`POST /api/turn`
+- `kb/seed/` 開場實體；runtime KB + `pi-sessions/`
+- `prompts/gm.md`（契約與酒館 canon 同檔）+ `npc-bartender.md`／`npc-ash.md`
+- `GM_MODE=pi`｜`mock`；模型經 pi／OpenRouter，app 不直連
+
+### Non-goals
+
+- 選劇本／custom 生成、多地點、戰鬥、生圖、session compact、多存檔槽
+

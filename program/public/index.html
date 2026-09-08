@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>vibe-gameverse</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1 id="heading">vibe-gameverse</h1>
+        <p class="sub">自由文字 · 起始劇本 · 記憶寫進 KB</p>
+        <p class="meta" id="meta"></p>
+      </header>
+
+      <section id="setup" class="setup" hidden>
+        <p class="lead">選擇世界起始劇本。未完成前不能進入回合。</p>
+        <div class="row">
+          <button type="button" id="setup-default">預設：鏽燈酒館</button>
+          <button type="button" id="setup-custom-toggle">自訂引子</button>
+        </div>
+        <form id="custom-form" class="custom-form" hidden>
+          <p class="hint">四欄是引子，不是世界正文。生成器會具體化姓名與私密筆記。</p>
+          <label>
+            世界觀（必填，至少 8 字）
+            <textarea id="worldview" rows="3" placeholder="這個世界的基調、規則、氣氛"></textarea>
+          </label>
+          <label>
+            主角（可空；留空則生成無名外鄉人）
+            <textarea id="protagonist" rows="2" placeholder="可留空"></textarea>
+          </label>
+          <label>
+            補充角色（可空；留空則生成 1–3 名開場 NPC 與一條鉤子）
+            <textarea id="extras" rows="2" placeholder="可留空"></textarea>
+          </label>
+          <label>
+            起始地點（必填，至少 8 字；開場那一幕，不是地圖）
+            <textarea id="starting_point" rows="2" placeholder="玩家一睜眼站在哪裡"></textarea>
+          </label>
+          <div class="row">
+            <button type="submit" id="setup-custom-submit">生成世界</button>
+          </div>
+        </form>
+        <p class="meta" id="setup-msg"></p>
+      </section>
+
+      <section id="play" hidden>
+        <section id="log" class="log" aria-live="polite"></section>
+        <form id="form">
+          <label class="sr" for="input">你要做什麼</label>
+          <textarea id="input" rows="2" placeholder="隨便說一句……" required></textarea>
+          <div class="row">
+            <button type="submit" id="send">送出</button>
+            <button type="button" id="restart" title="模擬重開 session：不清 KB，只刷新畫面，下一句會帶入 gm_note 與記憶切片">
+              重開畫面（保留記憶）
+            </button>
+            <button type="button" id="newgame" class="danger">新遊戲（回到起始選擇）</button>
+          </div>
+        </form>
+      </section>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,105 @@
+import index from "./public/index.html";
+import { HttpError } from "./errors.ts";
+import { turnLog } from "./log.ts";
+import { ensureRuntime, loadEpisodes, loadGmNote, loadRelations, loadScene, syncWorldGate } from "./kb.ts";
+import { getSetupStatus, requestNewGame, setupCustom, setupDefault } from "./setup.ts";
+import { runTurn } from "./turn.ts";
+
+await ensureRuntime();
+
+const gmMode = process.env.GM_MODE === "mock" ? "mock" : "pi";
+
+function jsonError(err: unknown): Response {
+  if (err instanceof HttpError) {
+    return Response.json(err.body, { status: err.status });
+  }
+  throw err;
+}
+
+const server = Bun.serve({
+  port: Number(process.env.PORT ?? 8787),
+  idleTimeout: 180,
+  routes: {
+    "/": index,
+
+    "/api/turn": {
+      POST: async (req) => {
+        const body: unknown = await req.json();
+        turnLog("http", "POST /api/turn");
+        try {
+          return Response.json(await runTurn(body));
+        } catch (err) {
+          if (err instanceof HttpError) return jsonError(err);
+          turnLog("http", `turn failed  ${err instanceof Error ? err.message : String(err)}`);
+          throw err;
+        }
+      },
+    },
+
+    "/api/state": {
+      GET: async () => {
+        const gate = await syncWorldGate();
+        const [gm_note, episodes, relations, scene] = await Promise.all([
+          loadGmNote(),
+          loadEpisodes(),
+          loadRelations(),
+          loadScene(),
+        ]);
+        return Response.json({
+          needs_setup: gate.needs_setup,
+          setup_status: getSetupStatus(),
+          world: gate.world ? { source: gate.world.source, title: gate.world.title } : null,
+          scene: gate.needs_setup ? null : scene,
+          gm_note: gate.needs_setup ? "" : gm_note,
+          episode_count: gate.needs_setup ? 0 : episodes.length,
+          episodes: gate.needs_setup ? [] : episodes.slice(-12),
+          relations: gate.needs_setup ? [] : relations,
+          gm_mode: gmMode,
+        });
+      },
+    },
+
+    "/api/setup/default": {
+      POST: async () => {
+        try {
+          const world = await setupDefault();
+          return Response.json({ ok: true, world });
+        } catch (err) {
+          return jsonError(err);
+        }
+      },
+    },
+
+    "/api/setup/custom": {
+      POST: async (req) => {
+        try {
+          const body: unknown = await req.json().catch(() => ({}));
+          const world = await setupCustom(body, req.signal);
+          return Response.json({ ok: true, world });
+        } catch (err) {
+          return jsonError(err);
+        }
+      },
+    },
+
+    "/api/new-game": {
+      POST: async () => {
+        try {
+          return Response.json(await requestNewGame());
+        } catch (err) {
+          return jsonError(err);
+        }
+      },
+    },
+
+    "/api/*": Response.json({ message: "Not found" }, { status: 404 }),
+  },
+
+  error(error) {
+    console.error(error);
+    const msg = error instanceof Error ? error.message : String(error);
+    return Response.json({ error: msg }, { status: 400 });
+  },
+});
+
+console.log(`vibe-gameverse  ${server.url}  (GM_MODE=${gmMode})`);
