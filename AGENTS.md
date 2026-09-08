@@ -1,6 +1,6 @@
 # vibe-gameverse — Agent Context
 
-本檔給 coding agent 開工用。規格起點：`docs/handover.md`、`docs/brainstorm.md`。不要重新大開腦暴，除非 Eric 明確要求改定案。現行版本：**0.4.0**（`VERSION.md`、`changelog.md`）。下一版規劃見 `docs/roadmap/`。其餘 backlog 見 `docs/roadmap/backlog/`。
+本檔給 coding agent 開工用。規格起點：`docs/handover.md`、`docs/brainstorm.md`。不要重新大開腦暴，除非 Eric 明確要求改定案。現行版本：**0.6.0**（`VERSION.md`、`changelog.md`）。下一版規劃：[0.7.0 多世界存檔](docs/roadmap/0.7.0/INDEX.md)（`planned`；尚有待拍板）。未排程構想：`docs/roadmap/backlog/`。
 
 ## 語言（強制）
 
@@ -43,7 +43,9 @@ Engram **只參考架構**，不要 clone、不要混個人 Engram。
 | Writer | 先吃 `events[]` 寫世界 KB，再機械更新 `npc-memory/`（池／L2 current／dirty set） | `program/writer.ts` + `program/npc-memory.ts`（程式，不另開模型） |
 | Presenter | `narration` + `npc_lines` | `program/public/` |
 
-GM 每回合吃：`player_text`、`gm_note`、`scene`、`memory_slice`（近 8 則 episode 摘要 + entities + relations）、**在場** `npc_memories`（L2 讀 `npc-memory/l2/{id}/current.json`，L0／L1 讀 `pool.json` 該節；禁止整份 pool），加上 **pi session 全文歷史**（compact 尚未做；**尚未寫** NPC `archive/`）。Writer **不讀**聊天逐字稿。`private_notes` 不併進 `npc_memories`。`npc_memories` **不**進對玩家 HTTP。
+GM 每回合吃：`player_text`、`gm_note`、`scene`、`memory_slice`（近 8 則 episode 摘要 + entities + relations）、**在場** `npc_memories`（L2 讀 `npc-memory/l2/{id}/current.json`，L0／L1 讀 `pool.json` 該節；禁止整份 pool），可選回想摘錄（啟發式才掃已存在的 archive），加上 **pi session 活 jsonl**（`play-sessions/`；成功 session compact 後換成新檔）。Writer **不讀**聊天逐字稿。`private_notes` 不併進 `npc_memories`。`npc_memories` 與 archive 摘錄 **不**進對玩家 HTTP。對局 GM JSON **必填** `scene`。
+
+Compact **兩個 scope**（同一 `POST /api/turn`、非背景）：L2 離場且有資格 → 只封該 NPC（`Promise.allSettled` 平行）；session 換檔由滿 N（倉庫預設 **8**）、`scene_id` 換幕或強制線觸發，**不**再問 judge、**不**因 `present` 進出整場封。離場 NPC 失敗不拖垮 session；session 失敗不回滾已提交的離場 NPC。`near_cap` 640 不當 NPC trigger。Mock 給人玩不自動跑 compact 短呼叫。
 
 合約與 coerce：`program/schema.ts`。`narration` 是舞台指示，**台詞只在 `npc_lines`**；空 narration 不要填「……」。新開口的角色用新 `npc_id`。缺 `npc_id` → `unknown_npc`；缺 `gm_note` →「本場進行中。」。禁止 coerce 預設酒館。
 
@@ -53,7 +55,7 @@ GM 每回合吃：`player_text`、`gm_note`、`scene`、`memory_slice`（近 8 �
 - **Default 對局 system**＝`prompts/gm-contract.md` + `gm-default.md` + **runtime** NPC `persona` 區塊。
 - **Custom 對局 system**＝契約前綴 + `kb/runtime/gm_canon.md` + runtime NPC `persona`。禁止把整份舊 `gm.md` 當 custom 前綴。禁止讀 repo `npc-*.md` 或 seed 組對局 prompt。
 - **`disposePlaySession`**：new-game／setup 前只釋放、不建立。**`createPlaySession`**：僅 ready 之後，依 `world.source` 組 prompt。禁止沿用舊 `resetPiGm`（dispose 後立刻開酒館 session）。
-- Ready 後重開 `bun start`：有 `pi-sessions/` jsonl → `continueRecent`，system 仍依**當前** contract＋canon。needs_setup 時不得 continue。
+- Ready 後重開 `bun start`：有 `play-sessions/` jsonl → `continueRecent`（開機若僅有舊 `pi-sessions/` 則改名一次），system 仍依**當前** contract＋canon。needs_setup 時不得 continue。缺根目錄 `config.yaml` 則啟動失敗。
 - `ensureRuntime` **不再偷灌** seed。測試灌 default 須顯式 `setupDefaultForTest`（或 `POST /api/setup/default`）。
 
 ## 檔案
@@ -62,12 +64,12 @@ GM 每回合吃：`player_text`、`gm_note`、`scene`、`memory_slice`（近 8 �
 program/          # server、turn、setup、gm-pi、writer、npc-memory、kb、schema、world-mock、public UI
 prompts/          # gm-contract + gm-default + world-generate（可留 writer.md）；禁止 npc-*.md
 kb/seed/          # Default 開場 JSON 模板（含 NPC persona 與瑪拉／灰 memory_tier: 2）
-kb/runtime/       # 本場 playthrough（world、entities、gm_canon.md、episodes、gm_note、scene、pi-sessions、npc-memory/）
+kb/runtime/       # 本場 playthrough（world、entities、gm_canon.md、episodes、gm_note、scene、play-sessions、session-archive、npc-memory/）
 docs/             # handover、brainstorm、roadmap
 ```
 
 - **開場卡司**只在 `kb/seed/`（模板）與 runtime。遊玩中冒出的角色 → Writer 寫 `kb/runtime/entities.json`（預設 `memory_tier` 0），**不要**預寫 `prompts/npc-*.md`。Custom NPC 只進 runtime，setup **不**建 `l2/`。
-- `kb/runtime/npc-memory/`：`pool.json`（L0／L1）、`dirty-set.json`、`l2/{npc_id}/current.json`。本版 **不寫** `archive/`。新遊戲 recursive 刪整個 `npc-memory/`。
+- `kb/runtime/npc-memory/`：`pool.json`（L0／L1）、`dirty-set.json`、`l2/{npc_id}/current.json`；成功 compact 才寫 `l2/{id}/archive/`。L2 current **不**截 800。新遊戲 recursive 刪整個 `npc-memory/`、`play-sessions/`、`session-archive/`。
 - `kb/runtime` 是存檔狀態。測試必須用 `VIBE_GAMEVERSE_KB_RUNTIME`（見 `program/test-runtime-env.ts`），**禁止** `rm` 專案裡的 live `kb/runtime`。
 - 不要把 API key 寫進 git。
 
@@ -75,7 +77,7 @@ docs/             # handover、brainstorm、roadmap
 
 - 開頁若 `needs_setup`：先顯示起始選擇，沒有酒館開場氣泡；`scene` 為 null。
 - 「**重開畫面**」：只清 DOM 氣泡；KB 與 pi session 仍在。重整／HMR 也會清畫面，不清 KB。
-- 「**新遊戲**」：清空 runtime（含 `pi-sessions`）+ `disposePlaySession`，回到起始選擇。不要立刻灌酒館或開對局 session。
+- 「**新遊戲**」：清空 runtime（含 `play-sessions`、`session-archive`）+ `disposePlaySession`，回到起始選擇。不要立刻灌酒館或開對局 session。
 - header／`<title>`／placeholder 隨 `world.title`；setup 畫面用中性標題。
 - 熱改 `program/` 要重載 server 才生效；重載前確認不要誤觸新遊戲。
 

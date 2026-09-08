@@ -11,9 +11,9 @@ import {
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { HttpError } from "./errors.ts";
-import { getNeedsSetup, kbRuntimeDir, loadCustomGmCanon, loadEntities, syncWorldGate } from "./kb.ts";
+import { getNeedsSetup, kbRuntimeDir, loadCompactState, loadCustomGmCanon, loadEntities, migratePlaySessionDir, playSessionsDir, syncWorldGate } from "./kb.ts";
 import { parseGmOutput, type Entity, type GmContext, type GmOutput } from "./schema.ts";
-import { turnLog } from "./log.ts";
+import { debugEnabled, debugLog, turnLog } from "./log.ts";
 
 const root = join(import.meta.dir, "..");
 const piCwd = kbRuntimeDir;
@@ -22,15 +22,32 @@ let session: AgentSession | undefined;
 let boot: Promise<AgentSession> | undefined;
 let turnLock: Promise<void> = Promise.resolve();
 
-export function parseAssistantJson(raw: string): unknown {
+export function parseAssistantJson(raw: string, hint = "assistant"): unknown {
+  if (debugEnabled()) debugLog("parse", `${hint} raw chars=${raw.length}\n${raw}`);
   const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   const text = (fence?.[1] ?? raw).trim();
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end <= start) {
+    debugLog("parse", `${hint} no JSON object\n${text}`);
     throw new Error(`GM (pi) did not return JSON: ${text.slice(0, 240)}`);
   }
-  return JSON.parse(text.slice(start, end + 1));
+  const slice = text.slice(start, end + 1);
+  if (debugEnabled()) debugLog("parse", `${hint} slice chars=${slice.length}\n${slice}`);
+  try {
+    return JSON.parse(slice);
+  } catch {
+    const repaired = slice
+      .replace(/,\s*([}\]])/g, "$1")
+      .replace(/[\u201c\u201d]/g, '"')
+      .replace(/[\u2018\u2019]/g, "'");
+    try {
+      return JSON.parse(repaired);
+    } catch {
+      debugLog("parse", `${hint} JSON.parse failed\n${slice}`);
+      throw new Error(`JSON Parse error: ${slice.slice(0, 240)}`);
+    }
+  }
 }
 
 export function lastAssistantText(s: AgentSession): string {
@@ -146,7 +163,8 @@ export async function openPiSession(opts: {
 }
 
 async function hasPlayJsonl(): Promise<boolean> {
-  const sessionDir = join(piCwd, "pi-sessions");
+  await migratePlaySessionDir();
+  const sessionDir = playSessionsDir;
   try {
     const names = await readdir(sessionDir);
     return names.some((n) => n.endsWith(".jsonl"));
@@ -156,11 +174,12 @@ async function hasPlayJsonl(): Promise<boolean> {
 }
 
 async function openOrContinuePlaySession(): Promise<AgentSession> {
+  await loadCompactState();
   const systemPrompt = await buildPlaySystemPrompt();
   const fresh = !(await hasPlayJsonl());
   return openPiSession({
     cwd: piCwd,
-    sessionDir: join(piCwd, "pi-sessions"),
+    sessionDir: playSessionsDir,
     systemPrompt,
     fresh,
   });
@@ -190,11 +209,18 @@ export async function createPlaySession(): Promise<void> {
   const systemPrompt = await buildPlaySystemPrompt();
   session = await openPiSession({
     cwd: piCwd,
-    sessionDir: join(piCwd, "pi-sessions"),
+    sessionDir: playSessionsDir,
     systemPrompt,
     fresh: true,
   });
   boot = Promise.resolve(session);
+}
+
+export async function promptPlayOpening(text: string): Promise<void> {
+  if (process.env.GM_MODE === "mock") return;
+  const s = await getSession();
+  await s.prompt(text);
+  await s.agent.waitForIdle();
 }
 
 export async function piGm(ctx: GmContext): Promise<GmOutput> {
@@ -212,7 +238,8 @@ export async function piGm(ctx: GmContext): Promise<GmOutput> {
       turnLog(ctx.turn_id, `pi   waiting ${Math.round((Date.now() - t0) / 1000)}s`);
     }, 2000);
     const turnPrompt = [
-      "This is one game turn. Do NOT echo the input JSON. Output GM keys only: narration, npc_lines, events, gm_note, ui, needs_image.",
+      "This is one game turn. Do NOT echo the input JSON. Output GM keys only: narration, npc_lines, events, gm_note, scene, ui, needs_image.",
+      "If anyone speaks, including telepathy or a voice in the player's head, npc_lines MUST be a non-empty array of {npc_id, name, text} with the actual words. Do not put those words only in events or gm_note.",
       JSON.stringify(ctx),
     ].join("\n");
     try {
@@ -223,7 +250,7 @@ export async function piGm(ctx: GmContext): Promise<GmOutput> {
     }
     turnLog(ctx.turn_id, `pi   idle  ${Date.now() - t0}ms`);
     try {
-      return parseGmOutput(parseAssistantJson(lastAssistantText(s)));
+      return parseGmOutput(parseAssistantJson(lastAssistantText(s), ctx.turn_id));
     } catch (first) {
       turnLog(ctx.turn_id, `pi   JSON retry (${first instanceof Error ? first.message : first})`);
       const t1 = Date.now();
@@ -236,14 +263,14 @@ export async function piGm(ctx: GmContext): Promise<GmOutput> {
             "Previous JSON was invalid for the game contract.",
             "Resend ONE JSON object with non-empty narration (scene prose, not player_text).",
             "npc_lines[].npc_id must be the actual speaker; new characters need a new id and name.",
-            "Keys: narration, npc_lines, events, gm_note, ui, needs_image.",
+            "Keys: narration, npc_lines, events, gm_note, scene, ui, needs_image.",
           ].join(" "),
         );
         await s.agent.waitForIdle();
       } finally {
         clearInterval(hb2);
       }
-      return parseGmOutput(parseAssistantJson(lastAssistantText(s)));
+      return parseGmOutput(parseAssistantJson(lastAssistantText(s), `${ctx.turn_id}-retry`));
     }
   } finally {
     release();

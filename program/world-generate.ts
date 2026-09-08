@@ -31,7 +31,7 @@ export async function generateCustomSeed(primer: Primer, signal?: AbortSignal): 
   const jobDir = await mkdtemp(join(tmpdir(), "vibe-world-gen-"));
   const session = await openPiSession({
     cwd: jobDir,
-    sessionDir: join(jobDir, "pi-sessions"),
+    sessionDir: join(jobDir, "generate-sessions"),
     systemPrompt: system,
     fresh: true,
   });

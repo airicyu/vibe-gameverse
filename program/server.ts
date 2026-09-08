@@ -1,10 +1,13 @@
 import index from "./public/index.html";
 import { HttpError } from "./errors.ts";
-import { turnLog } from "./log.ts";
+import { serverLogPath, turnLog } from "./log.ts";
+import { debugRunCompact } from "./compact.ts";
 import { ensureRuntime, loadEpisodes, loadGmNote, loadRelations, loadScene, syncWorldGate } from "./kb.ts";
 import { getSetupStatus, requestNewGame, setupCustom, setupDefault } from "./setup.ts";
 import { runTurn } from "./turn.ts";
+import { getAppConfig } from "./config.ts";
 
+await getAppConfig();
 await ensureRuntime();
 
 const gmMode = process.env.GM_MODE === "mock" ? "mock" : "pi";
@@ -55,6 +58,7 @@ const server = Bun.serve({
           episodes: gate.needs_setup ? [] : episodes.slice(-12),
           relations: gate.needs_setup ? [] : relations,
           gm_mode: gmMode,
+          debug: getAppConfig().debug,
         });
       },
     },
@@ -92,6 +96,30 @@ const server = Bun.serve({
       },
     },
 
+    "/api/debug/session-compact": {
+      POST: async () => {
+        turnLog("http", "POST /api/debug/session-compact");
+        try {
+          if (!getAppConfig().debug) {
+            throw new HttpError(404, { error: "not_found" });
+          }
+          const gate = await syncWorldGate();
+          if (gate.needs_setup) {
+            throw new HttpError(409, { needs_setup: true, error: "needs_setup" });
+          }
+          const result = await debugRunCompact();
+          return Response.json({
+            ok: result.compacted,
+            compacted: result.compacted,
+            archive_id: result.archiveId ?? null,
+            turn_id: result.turn_id,
+          });
+        } catch (err) {
+          return jsonError(err);
+        }
+      },
+    },
+
     "/api/*": Response.json({ message: "Not found" }, { status: 404 }),
   },
 
@@ -103,3 +131,4 @@ const server = Bun.serve({
 });
 
 console.log(`vibe-gameverse  ${server.url}  (GM_MODE=${gmMode})`);
+turnLog("boot", `server.log=${serverLogPath()} debug=${getAppConfig().debug}`);

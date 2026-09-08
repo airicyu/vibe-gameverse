@@ -10,6 +10,9 @@ const setupMsg = document.getElementById("setup-msg");
 const setupDefaultBtn = document.getElementById("setup-default");
 const setupCustomToggle = document.getElementById("setup-custom-toggle");
 const setupCustomSubmit = document.getElementById("setup-custom-submit");
+const debugPanel = document.getElementById("debug-panel");
+const debugCompactBtn = document.getElementById("debug-compact");
+const debugMsg = document.getElementById("debug-msg");
 
 let sceneId = null;
 let worldTitle = null;
@@ -54,9 +57,11 @@ function applyMeta(s) {
   const mode = s.gm_mode ?? "?";
   if (s.needs_setup) {
     meta.textContent = `模式 ${mode} · 尚未選擇起始劇本`;
+    debugPanel.hidden = true;
     return;
   }
   meta.textContent = `模式 ${mode} · 已寫 ${s.episode_count} 則 episode · 關係 ${s.relations.length} 條`;
+  debugPanel.hidden = !s.debug;
 }
 
 function setSetupBusy(busy) {
@@ -137,6 +142,26 @@ document.getElementById("restart").addEventListener("click", async () => {
   applyMeta(s);
 });
 
+debugCompactBtn.addEventListener("click", async () => {
+  debugCompactBtn.disabled = true;
+  debugMsg.textContent = "compact 進行中…";
+  try {
+    const res = await fetch("/api/debug/session-compact", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    debugMsg.textContent = data.compacted
+      ? `已封存 ${data.archive_id}（${data.turn_id}）`
+      : `compact 失敗（${data.turn_id}）；活 session 仍在`;
+    add("系統", debugMsg.textContent, data.compacted ? "narration" : "err");
+    applyMeta(await fetchState());
+  } catch (err) {
+    debugMsg.textContent = String(err.message || err);
+    add("錯誤", debugMsg.textContent, "err");
+  } finally {
+    debugCompactBtn.disabled = false;
+  }
+});
+
 document.getElementById("newgame").addEventListener("click", async () => {
   const res = await fetch("/api/new-game", { method: "POST" });
   const data = await res.json();
@@ -150,7 +175,7 @@ document.getElementById("newgame").addEventListener("click", async () => {
   customForm.hidden = true;
   setupMsg.textContent = "";
   showSetup();
-  applyMeta({ gm_mode: (await fetchState()).gm_mode, needs_setup: true });
+  applyMeta({ gm_mode: (await fetchState()).gm_mode, needs_setup: true, debug: false });
 });
 
 setupDefaultBtn.addEventListener("click", async () => {

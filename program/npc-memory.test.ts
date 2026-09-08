@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import {
   commitCustomWorld,
   DEFAULT_L2_CURRENT_BODY,
+  INITIAL_SCENE,
   kbRuntimeDir,
   loadDirtySet,
   loadEntities,
@@ -76,6 +77,7 @@ function greetGm(npcId: string): GmOutput {
       },
     ],
     gm_note: "進行中",
+    scene: INITIAL_SCENE,
     ui: null,
     needs_image: false,
   };
@@ -95,6 +97,7 @@ function talkGm(npcId: string, summary: string): GmOutput {
       },
     ],
     gm_note: "進行中",
+    scene: INITIAL_SCENE,
     ui: null,
     needs_image: false,
   };
@@ -206,6 +209,7 @@ test("present only does not write body or promote", async () => {
       },
     ],
     gm_note: "進行中",
+    scene: INITIAL_SCENE,
     ui: null,
     needs_image: false,
   };
@@ -283,8 +287,9 @@ test("L0 forgotten after 12 turns without substantive hit; entity remains", asyn
           entity_ids: ["bartender", "player"],
         },
       ],
-      gm_note: "進行中",
-      ui: null,
+    gm_note: "進行中",
+    scene: INITIAL_SCENE,
+    ui: null,
       needs_image: false,
     },
     "t0013",
@@ -352,8 +357,9 @@ test("dirty near_cap follows L2 body length 640", async () => {
           entity_ids: ["ash", "player"],
         },
       ],
-      gm_note: "進行中",
-      ui: null,
+    gm_note: "進行中",
+    scene: INITIAL_SCENE,
+    ui: null,
       needs_image: false,
     },
     "t0004",
@@ -378,8 +384,9 @@ test("dirty near_cap follows L2 body length 640", async () => {
           entity_ids: ["ash", "player"],
         },
       ],
-      gm_note: "進行中",
-      ui: null,
+    gm_note: "進行中",
+    scene: INITIAL_SCENE,
+    ui: null,
       needs_image: false,
     },
     "t0005",
@@ -394,9 +401,10 @@ test("custom harbor has no tavern L2; new npc not 2; no archive files", async ()
   await setupCustom(LONG_PRIMER);
   expect(existsSync(join(kbRuntimeDir, "npc-memory", "l2", "bartender"))).toBe(false);
   expect((await loadEntities()).find((e) => e.id === "keeper")?.memory_tier).toBe(0);
-  await runTurn({ player_text: "我向櫃檯點一碗湯" });
+  const result = await runTurn({ player_text: "我向櫃檯點一碗湯" });
   const files = await walkFiles(join(kbRuntimeDir, "npc-memory"));
   expect(files.some((f) => f.includes(`${join("archive")}`))).toBe(false);
+  expect("archive_excerpts" in result).toBe(false);
   await resetPlaythrough();
   expect(existsSync(join(kbRuntimeDir, "npc-memory"))).toBe(false);
 });
@@ -406,4 +414,5 @@ test("runTurn HTTP result has no npc_memories key", async () => {
   await setupDefaultForTest();
   const result = await runTurn({ player_text: "你好" });
   expect("npc_memories" in result).toBe(false);
+  expect("archive_excerpts" in result).toBe(false);
 });

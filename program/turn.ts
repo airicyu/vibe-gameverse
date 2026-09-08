@@ -1,11 +1,22 @@
 import { HttpError } from "./errors.ts";
-import { buildMemorySlice, loadEntities, loadGmNote, loadNpcPool, loadScene, nextTurnId, saveGmNote, syncWorldGate } from "./kb.ts";
+import { maybeCompactAfterTurn } from "./compact.ts";
 import { mockGm } from "./gm-mock.ts";
-import { turnLog } from "./log.ts";
 import { piGm } from "./gm-pi.ts";
+import {
+  buildMemorySlice,
+  loadEntities,
+  loadGmNote,
+  loadNpcPool,
+  loadScene,
+  nextTurnId,
+  saveGmNote,
+  syncWorldGate,
+} from "./kb.ts";
+import { turnLog } from "./log.ts";
+import { buildGmContext, loadL2MapForPresent } from "./npc-memory.ts";
+import { formatRecallForGm, gatherRecallSnippets } from "./recall.ts";
 import { parseGmOutput, PlayerInputSchema, type GmOutput, type PlayerInput } from "./schema.ts";
 import { writeFromGm } from "./writer.ts";
-import { buildGmContext, loadL2MapForPresent } from "./npc-memory.ts";
 
 export type TurnResult = {
   turn_id: string;
@@ -50,9 +61,16 @@ export async function runTurn(raw: unknown): Promise<TurnResult> {
     pool: await loadNpcPool(),
     l2ById: await loadL2MapForPresent(scene, entities),
   });
+  const recall = await gatherRecallSnippets({
+    playerText: input.player_text,
+    scene,
+    entities,
+    memorySlice: memory_slice,
+  });
+  ctx.archive_excerpts = formatRecallForGm(recall) || undefined;
   turnLog(
     turn_id,
-    `ctx  episodes=${memory_slice.episodes.length} relations=${memory_slice.relations.length} gm_note=${gm_note.length}c memories=${ctx.npc_memories.length}`,
+    `ctx  episodes=${memory_slice.episodes.length} relations=${memory_slice.relations.length} gm_note=${gm_note.length}c memories=${ctx.npc_memories.length} recall=${recall.length}`,
   );
 
   const mode = gmMode();
@@ -75,6 +93,7 @@ export async function runTurn(raw: unknown): Promise<TurnResult> {
   turnLog(turn_id, `write events=${gm.events.length} npc_lines=${gm.npc_lines.length}`);
   const episodes = await writeFromGm(gm, turn_id, timestamp, scene_id);
   await saveGmNote(gm.gm_note);
+  await maybeCompactAfterTurn({ turnId: turn_id, gm, sceneBefore: scene, mock: mode === "mock" });
   turnLog(turn_id, `ok   ${Date.now() - t0}ms  episodes_written=${episodes.length}`);
 
   return { turn_id, gm, episodes_written: episodes.length };

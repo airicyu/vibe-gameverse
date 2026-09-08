@@ -74,7 +74,7 @@
 - 不做多 NPC agent、不把 Writer 變回第二個模型
 - 不把 **GM** 契約從 `prompts/` 整包搬進 `kb/`
 - 不做多存檔槽、KB `store_version` migrate（見 [`../backlog/kb-runtime-upgrade.md`](../backlog/kb-runtime-upgrade.md)）
-- 不做 session compact（見 [`../backlog/session-compact.md`](../backlog/session-compact.md)）
+- 不做 session compact（當時未排；後由 [0.5.0](../0.5.0/INDEX.md) 出貨）
 - 不恢復「無 world.json 用 seed id 指紋補 default」（已作廢；`AGENTS.md`／現行 `syncWorldGate` 已是只認有效 world）
 - 不改 OpenRouter 直連；不做人設編輯器 UI
 

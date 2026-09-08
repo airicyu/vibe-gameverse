@@ -1,7 +1,7 @@
 # 0.4.0 NPC 分層記憶（池 + L2 現用 + dirty set）
 
 - 上游：[0.3.0 執行期只寫 kb／人設離開 source](../0.3.0/INDEX.md)（`shipped`）
-- 構想來源：[backlog/npc-memory-files.md](../backlog/npc-memory-files.md)（排程中保留；**契約以本 INDEX＋docs 為準**）
+- 構想來源：已出貨；契約以本 INDEX＋docs 為準（原 backlog `npc-memory-files.md` 已刪）
 - Changelog：出貨時寫根目錄 [`changelog.md`](../../../changelog.md)；同步 `VERSION.md` 與 `AGENTS.md`
 - 狀態：`shipped`
 - 日期：2026-09-06（Asia/Hong_Kong）
@@ -18,7 +18,7 @@
 2. [`docs/npc-memory.md`](./docs/npc-memory.md)（HOW：路徑、schema、一回合插入點、常數）
 3. [`docs/reasoning.md`](./docs/reasoning.md)（WHY）
 4. 開工：[`HANDOFF.md`](./HANDOFF.md)
-5. 構想背景（勿覆寫本版已定案）：[`../backlog/npc-memory-files.md`](../backlog/npc-memory-files.md)、[`../backlog/session-compact.md`](../backlog/session-compact.md)
+5. 上游：[0.3.0 INDEX](../0.3.0/INDEX.md)
 
 規格對照（勿當本版契約）：`docs/handover.md`、`docs/brainstorm.md`、根目錄 `AGENTS.md`、[0.3.0 INDEX](../0.3.0/INDEX.md)。
 
@@ -34,14 +34,14 @@
 | `GmContext` | player_text、gm_note、scene、memory_slice、turn_id、timestamp | 加 `npc_memories`：僅 **本回合 `scene.present` 內的 npc**，每 id 一節 body |
 | 新 NPC | `ensureEntity` 無 tier／無池 | 預設 tier **0**；實質互動才寫池節 |
 | 新遊戲／setup 原子清盤 | `PLAYTHROUGH_FILES` 等 | **一併**刪 `npc-memory/` |
-| Session jsonl | 只增不壓 | **不變**（compact 仍 backlog） |
+| Session jsonl | 只增不壓 | **不變**（compact 當時未做；後由 [0.5.0](../0.5.0/INDEX.md) 出貨） |
 | NPC archive 檔 | 無 | **只定 schema 與目錄規則**；本版 **禁止**寫 `archive/` 下檔案 |
 
 **其餘 0.3.0 契約維持**（gate、persona、canon、不指紋、不讀 `npc-*.md`、測試隔離 runtime）。
 
 ## 已定案
 
-1. **範圍。** 本版做角色**現用**記憶管線。Archive **格式與路徑**寫在 HOW、用 zod 鎖住，供日後 [session-compact](../backlog/session-compact.md) 寫入。本版測試須斷言：回合／setup／new-game **不會**建立 `**/npc-memory/**/archive/**` 內的檔。
+1. **範圍。** 本版做角色**現用**記憶管線。Archive **格式與路徑**寫在 HOW、用 zod 鎖住，供日後 session compact 寫入（已由 [0.5.0](../0.5.0/INDEX.md) 出貨）。本版測試須斷言：回合／setup／new-game **不會**建立 `**/npc-memory/**/archive/**` 內的檔。
 2. **誰有記憶。** 僅 `kind: "npc"`。player／place／item 無 tier 語意。非 npc **禁止**出現 `memory_tier`（有值 → parse **失敗**，不 coerce）。
 3. **`memory_tier`：`0 | 1 | 2`。** 寫在 runtime `entities.json`（及 seed／生成 entity）。缺欄＋`kind: "npc"` → 視為 **0**（coerce 一次寫回可在 Writer／load 時做；seed 瑪拉／灰必須顯式 `2`）。**禁止**用「有沒有獨立檔」反推等級。
 4. **L0 與 L1 同一檔** `npc-memory/pool.json`。L2 在 `npc-memory/l2/{npc_id}/current.json`（不得使用 `npc-memory/{id}.json`，以免日後與 `{id}/` 目錄衝突）。

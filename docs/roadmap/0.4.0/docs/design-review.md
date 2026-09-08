@@ -4,7 +4,7 @@
 - 輪次：**第四輪複審**
 - 角色：設計審查（不改 INDEX／HOW／reasoning／HANDOFF／程式；不以本檔當已定案）
 - 對照基準：[`../INDEX.md`](../INDEX.md) 已定案＋驗收；HOW：[`npc-memory.md`](./npc-memory.md)；WHY：[`reasoning.md`](./reasoning.md)；開工：[`../HANDOFF.md`](../HANDOFF.md)
-- 對照（非本版契約）：[`../../0.3.0/INDEX.md`](../../0.3.0/INDEX.md)；構想：[`../../backlog/npc-memory-files.md`](../../backlog/npc-memory-files.md)
+- 對照（非本版契約）：[`../../0.3.0/INDEX.md`](../../0.3.0/INDEX.md)
 - 現行程式抽樣：`program/writer.ts`、`program/turn.ts`（0.3.0 shipped；本版尚未實作）
 - **總評：無未關閉 HIGH。H5／M16／M17 已關閉。審查門檻通過。** M18、M19、L6–L8 非阻擋。
 

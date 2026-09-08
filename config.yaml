@@ -1,0 +1,6 @@
+debug: true
+compact:
+  max_turns_without_compact: 8
+  recent_turns_to_keep: 3
+  force_after_input_tokens: 100000
+  force_after_jsonl_bytes: 400000

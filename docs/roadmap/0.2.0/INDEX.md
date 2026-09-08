@@ -78,7 +78,7 @@
 - 生圖、戰鬥、任務日誌、多地點狀態機
 - 真・多 agent NPC；Writer 仍不呼叫模型
 - 把 Engram 或私人生活寫進 seed
-- Compact GM session（仍未做，不塞進本版；構想見 [`../backlog/session-compact.md`](../backlog/session-compact.md)，尚未排程）
+- Compact GM session（當時未做；後由 [0.5.0](../0.5.0/INDEX.md) 出貨）
 - KB runtime 結構版本／migrate（仍未做；構想見 [`../backlog/kb-runtime-upgrade.md`](../backlog/kb-runtime-upgrade.md)，尚未排程）
 - 改 OpenRouter 直連（仍只經 pi）
 

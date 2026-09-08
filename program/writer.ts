@@ -6,6 +6,7 @@ import {
   saveEntities,
   saveEpisodes,
   saveRelations,
+  saveScene,
 } from "./kb.ts";
 import type { Entity, EventDraft, Episode, GmOutput } from "./schema.ts";
 import { updateNpcMemories } from "./npc-memory.ts";
@@ -110,5 +111,6 @@ export async function writeFromGm(
   await saveRelations(relations);
   await saveEntities(entities);
   await updateNpcMemories(gm, turnId);
+  await saveScene(gm.scene);
   return written;
 }

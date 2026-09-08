@@ -4,6 +4,48 @@
 
 ---
 
+## 0.6.0 — Compact 分 scope 與同回合平行（2026-09-08）
+
+人離開舞台時只封該名 L2；jsonl 換檔是較瘦的 session 線。廢 0.5.0 judge 與進出問整場。同一 HTTP 回合內 `allSettled` 平行短呼叫，不背景、不鎖。失敗解耦。倉庫 `max_turns_without_compact` 預設 8。見 `docs/roadmap/0.6.0/`。
+
+### Changed
+
+- Compact 拆 NPC／session 兩 scope；`present` 進出不再觸發 session compact
+- 熱路徑不呼叫 judge；session 觸發＝滿 N、`scene_id` 換幕、或強制線
+- 離場有資格 L2 與（若 session）summary／在場 ≥640 同時開跑，聚合 `allSettled`
+- NPC 失敗只回滾該 id；session 自身仍 fail-closed，不回滾已提交的離場 NPC
+
+### Non-goals
+
+- 背景 compact、per-id 鎖、搬 `kb/runtime` 樹、debug 分鈕、`pi-subagents`
+
+---
+
+## 0.5.0 — Session compact（封存活對局 + L2 archive + 一層回想）（2026-09-07）
+
+長局把活 jsonl 封進 `session-archive/`、開新對局 session；同一拍寫重要性 2 的 NPC `archive/` 並 distill `current`。取消 L2 800 硬截。活目錄改名 `play-sessions/`。根目錄 `config.yaml`。對局 GM JSON 必填 `scene`。回想：啟發式才掃，最多兩份細節。見 `docs/roadmap/0.5.0/`。
+
+### Added
+
+- 根目錄 `config.yaml`（缺檔／鍵型錯誤則啟動失敗）；測試可用 `VIBE_GAMEVERSE_CONFIG`
+- `kb/runtime/play-sessions/`、`session-archive/`、`compact-state.json`
+- Compact judge／summary／NPC archive 獨立短呼叫；整步失敗回滾
+- 一層回想（GM 前啟發式；摘錄不進玩家 HTTP）
+
+### Changed
+
+- 廢 L2 current UTF-16 800 硬截；`near_cap` 640 仍只當 distill 優先，不觸發封存
+- 日常 Writer 保留 `since_session_archive`；成功 compact 才寫入 `archive_id`
+- GM JSON 必填 `scene`；Writer 每回合落盤 `scene.json`
+- 開機舊 `pi-sessions/` 在尚無 `play-sessions/` 時改名一次
+- 新遊戲刪 `play-sessions/`、`session-archive/`、`compact-state.json`
+
+### Non-goals
+
+- 歷史 UI、多存檔槽、第二層章 rollup、clone Engram、對局 GM JSON 回想點名欄
+
+---
+
 ## 0.4.0 — NPC 分層記憶（池 + L2 現用 + dirty set）（2026-09-07）
 
 對局除世界 KB 外，NPC 有分層主觀記憶：L0／L1 同在 `npc-memory/pool.json`；升到 2 才有 `l2/{id}/current.json` 且永不降級。Default 瑪拉／灰開場即 L2（短常數）。Writer 在世界 KB 之後機械更新；不開第二模型。本版 **不寫** NPC archive、**不** compact jsonl。見 `docs/roadmap/0.4.0/`。

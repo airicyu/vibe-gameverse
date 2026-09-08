@@ -15,6 +15,11 @@ test("parseAssistantJson extracts object from fence", () => {
   expect(obj.narration).toBe("ok");
 });
 
+test("parseAssistantJson repairs trailing commas", () => {
+  const obj = parseAssistantJson('{ "title": "a", "summary": "b", }') as { title: string };
+  expect(obj.title).toBe("a");
+});
+
 test("parseGmOutput coerces single npc_lines object to array", () => {
   const gm = parseGmOutput({
     narration: "煙味很重。",
@@ -27,6 +32,7 @@ test("parseGmOutput coerces single npc_lines object to array", () => {
       entity_ids: "bartender",
     },
     gm_note: "防備中",
+    scene: { scene_id: "tavern", present: ["player", "bartender", "ash"], visible: [] },
     ui: null,
     needs_image: false,
   });
@@ -41,6 +47,7 @@ test("parseGmOutput fills display name and rejects echo-without-narration", () =
     npc_lines: [{ npc_id: "bartender", text: "坐。" }],
     events: [],
     gm_note: "x",
+    scene: { scene_id: "tavern", present: ["player", "bartender", "ash"], visible: [] },
     ui: null,
     needs_image: false,
   });
@@ -50,6 +57,19 @@ test("parseGmOutput fills display name and rejects echo-without-narration", () =
     parseGmOutput({
       player_text: "來點啤酒",
       npc_lines: [{ npc_id: "ash", text: "我是守燈人" }],
+      events: [],
+      gm_note: "x",
+      ui: null,
+      needs_image: false,
+    }),
+  ).toThrow();
+});
+
+test("parseGmOutput missing scene fails", () => {
+  expect(() =>
+    parseGmOutput({
+      narration: "燈。",
+      npc_lines: [],
       events: [],
       gm_note: "x",
       ui: null,
@@ -80,6 +100,7 @@ test("parseGmOutput strips duplicated NPC lines out of narration", () => {
     ],
     events: [],
     gm_note: "回酒館",
+    scene: { scene_id: "tavern", present: ["player", "bartender", "ash"], visible: [] },
     ui: null,
     needs_image: false,
   });
@@ -95,11 +116,39 @@ test("parseGmOutput missing npc_id is unknown_npc not bartender", () => {
     npc_lines: [{ text: "坐。" }],
     events: [],
     gm_note: "",
+    scene: { scene_id: "tavern", present: ["player", "bartender", "ash"], visible: [] },
     ui: null,
     needs_image: false,
   });
   expect(gm.npc_lines[0]?.npc_id).toBe("unknown_npc");
   expect(gm.gm_note).toBe("本場進行中。");
+});
+
+test("parseGmOutput fills npc_lines from spoken events when model left them empty", () => {
+  const gm = parseGmOutput({
+    narration: "那團霧沉默了很長一段時間。聲音在你腦中響起。",
+    npc_lines: [],
+    events: [
+      {
+        actors: ["player"],
+        action: "詢問霧狀存在是什麼以及它的名字",
+        result: "霧狀存在說出自己的名字，並解釋自己的本質",
+        summary: "霧狀存在稱自己為『燼』，是一盞早已熄滅的燈塔的燈靈。",
+        entity_ids: ["player"],
+      },
+    ],
+    gm_note: "x",
+    scene: {
+      scene_id: "old_elm_deep_forest",
+      present: ["player"],
+      visible: ["old_elm", "buried_lamp", "mist_entity"],
+    },
+    ui: null,
+    needs_image: false,
+  });
+  expect(gm.npc_lines).toHaveLength(1);
+  expect(gm.npc_lines[0]?.npc_id).toBe("mist_entity");
+  expect(gm.npc_lines[0]?.text.includes("燼")).toBe(true);
 });
 
 test("mock GM + writer persist episode and relation", async () => {
@@ -157,6 +206,7 @@ test("Writer persists a newly speaking NPC into runtime entities", async () => {
       },
     ],
     gm_note: "守燈人已現身",
+    scene: { scene_id: "tavern", present: ["player", "bartender", "ash"], visible: [] },
     ui: null,
     needs_image: false,
   });

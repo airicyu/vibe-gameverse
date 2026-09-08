@@ -34,7 +34,6 @@ export const TRIVIAL_ACTIONS = new Set([
 ]);
 
 export const POOL_BODY_MAX = 600;
-export const L2_BODY_MAX = 800;
 export const NEAR_CAP_MIN = 640;
 export const L0_FORGET_GAP = 12;
 export const L0_POOL_TOTAL_MAX = 4000;
@@ -55,10 +54,6 @@ export function turnIdToN(turnId: string): number {
 
 function clipEnd(text: string, max: number): string {
   return text.length <= max ? text : text.slice(0, max);
-}
-
-function clipTail(text: string, max: number): string {
-  return text.length <= max ? text : text.slice(text.length - max);
 }
 
 function eventIsTrivial(event: EventDraft): boolean {
@@ -178,7 +173,7 @@ async function promoteToL2(opts: {
   delete pool.npcs[id];
   const current: L2Current = {
     npc_id: id,
-    body: clipTail(body.trim(), L2_BODY_MAX),
+    body: body.trim(),
     updated_turn: currentN,
   };
   try {
@@ -318,7 +313,7 @@ export async function updateNpcMemories(gm: GmOutput, turnId: string): Promise<v
     if (began === 2 && writable && !trivial) {
       await saveL2Current({
         npc_id: id,
-        body: clipTail(candidate.trim(), L2_BODY_MAX),
+        body: candidate.trim(),
         updated_turn: currentN,
       });
       written.add(id);
@@ -342,6 +337,6 @@ export async function updateNpcMemories(gm: GmOutput, turnId: string): Promise<v
 
   const touched = [...new Set([...dirty.touched, ...written])];
   const near_cap = await recountNearCap(entities);
-  const next: DirtySet = { since_session_archive: null, touched, near_cap };
+  const next: DirtySet = { since_session_archive: dirty.since_session_archive, touched, near_cap };
   await saveDirtySet(next);
 }

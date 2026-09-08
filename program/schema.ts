@@ -24,6 +24,14 @@ export const NpcLineSchema = z.object({
   text: z.string().min(1),
 });
 
+export const SceneStateSchema = z.object({
+  scene_id: z.string(),
+  present: z.array(z.string()),
+  visible: z.array(z.string()),
+});
+
+export type SceneState = z.infer<typeof SceneStateSchema>;
+
 export const KNOWN_NPC_NAMES: Record<string, string> = {
   bartender: "瑪拉",
   ash: "灰",
@@ -50,6 +58,7 @@ export const GmOutputSchema = z.object({
   npc_lines: z.array(NpcLineSchema),
   events: z.array(EventDraftSchema),
   gm_note: z.string().min(1).max(800),
+  scene: SceneStateSchema,
   ui: z.unknown().nullable().default(null),
   needs_image: z.boolean().default(false),
 });
@@ -75,6 +84,47 @@ function asStrings(value: unknown): string[] {
     return value.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
   }
   return ["player"];
+}
+
+function looksLikeSpokenEvent(event: { action: string; result: string; summary: string }): boolean {
+  const told = `${event.result} ${event.summary}`;
+  return /說|回應|請求|開口|自稱|告訴|指出|心靈/.test(told);
+}
+
+function speakerFromScene(scene: unknown, eventIds: string[]): string {
+  const rec = scene && typeof scene === "object" ? (scene as Record<string, unknown>) : {};
+  const present = asStrings(rec.present).filter((id) => id && id !== "player");
+  if (present[0]) return present[0]!;
+  const fromEvent = eventIds.find((id) => id && id !== "player");
+  if (fromEvent) return fromEvent;
+  const visible = asStrings(rec.visible).filter(
+    (id) => id && id !== "player" && /entity|npc|spirit|mist|ghost|ash|bartender/.test(id),
+  );
+  if (visible[0]) return visible[0]!;
+  return "unknown_npc";
+}
+
+function fillNpcLinesFromEvents(
+  lines: { npc_id: string; name: string; text: string }[],
+  events: { action: string; result: string; summary: string; entity_ids: string[] }[],
+  scene: unknown,
+  fillKnown: boolean,
+): { npc_id: string; name: string; text: string }[] {
+  if (lines.length > 0) return lines;
+  const spoken = events.filter(looksLikeSpokenEvent);
+  if (spoken.length === 0) return lines;
+  return spoken
+    .map((e) => {
+      const text = (e.summary || e.result).trim();
+      if (!text) return null;
+      const npc_id = speakerFromScene(scene, e.entity_ids);
+      return {
+        npc_id,
+        name: speakerName(npc_id, "", fillKnown),
+        text,
+      };
+    })
+    .filter((x) => x != null);
 }
 
 function coerceEvent(raw: unknown): unknown {
@@ -127,7 +177,13 @@ export function normalizeGmPayload(raw: unknown, opts?: NormalizeGmOptions): unk
   const o = raw as Record<string, unknown>;
   const rawNote = o.gm_note ?? o.gmNote;
   const note = (typeof rawNote === "string" ? rawNote : "").trim().slice(0, 800);
-  const npc_lines = asList(o.npc_lines)
+  const events = asList(o.events).map(coerceEvent) as {
+    action: string;
+    result: string;
+    summary: string;
+    entity_ids: string[];
+  }[];
+  const parsedLines = asList(o.npc_lines)
     .map((line) => {
       if (!line || typeof line !== "object") return null;
       const L = line as Record<string, unknown>;
@@ -143,11 +199,13 @@ export function normalizeGmPayload(raw: unknown, opts?: NormalizeGmOptions): unk
       };
     })
     .filter((x) => x != null);
+  const npc_lines = fillNpcLinesFromEvents(parsedLines, events, o.scene, fillKnown);
   return {
     narration: stripNpcSpeechFromNarration(pickNarration(o), npc_lines),
     npc_lines,
-    events: asList(o.events).map(coerceEvent),
+    events,
     gm_note: note || "本場進行中。",
+    scene: o.scene,
     ui: o.ui ?? null,
     needs_image: o.needs_image === true,
   };
@@ -228,7 +286,7 @@ export const EMPTY_NPC_POOL: NpcPool = { npcs: {} };
 
 export const L2CurrentSchema = z.object({
   npc_id: z.string().min(1),
-  body: z.string().max(800),
+  body: z.string(),
   updated_turn: z.number().int(),
 });
 
@@ -314,14 +372,6 @@ export const RelationSchema = z.object({
 
 export type Relation = z.infer<typeof RelationSchema>;
 
-export const SceneStateSchema = z.object({
-  scene_id: z.string(),
-  present: z.array(z.string()),
-  visible: z.array(z.string()),
-});
-
-export type SceneState = z.infer<typeof SceneStateSchema>;
-
 export type MemorySlice = {
   episodes: Pick<Episode, "id" | "summary" | "timestamp">[];
   entities: Pick<Entity, "id" | "name" | "summary">[];
@@ -336,6 +386,7 @@ export type GmContext = {
   turn_id: string;
   timestamp: string;
   npc_memories: NpcMemorySnippet[];
+  archive_excerpts?: string;
 };
 
 export const ENTITY_ID_RE = /^[a-z][a-z0-9_]*$/;
@@ -457,3 +508,77 @@ export function parseGeneratedWorld(raw: unknown, primer: Primer): GeneratedWorl
   );
   return parsed;
 }
+
+export const AppConfigSchema = z.object({
+  debug: z.boolean().default(false),
+  compact: z.object({
+    max_turns_without_compact: z.number().int().positive(),
+    recent_turns_to_keep: z.number().int().min(1).max(10),
+    force_after_input_tokens: z.number().int().positive(),
+    force_after_jsonl_bytes: z.number().int().positive(),
+  }),
+});
+
+export type AppConfig = z.infer<typeof AppConfigSchema>;
+
+export const SESSION_ARCHIVE_ID_RE = /^sa_[0-9]{3,}$/;
+
+export const CompactStateSchema = z.object({
+  anchor_turn_n: z.number().int().min(0),
+});
+
+export type CompactState = z.infer<typeof CompactStateSchema>;
+
+export const SessionArchiveIndexEntrySchema = z.object({
+  archive_id: z.string().regex(SESSION_ARCHIVE_ID_RE),
+  turn_from: z.string().min(1),
+  turn_to: z.string().min(1),
+  title: z.string().min(1),
+  truncated: z.boolean(),
+});
+
+export const SessionArchiveIndexSchema = z.object({
+  entries: z.array(SessionArchiveIndexEntrySchema),
+});
+
+export type SessionArchiveIndex = z.infer<typeof SessionArchiveIndexSchema>;
+
+export const SessionSummarySchema = z.object({
+  archive_id: z.string().regex(SESSION_ARCHIVE_ID_RE),
+  turn_from: z.string().min(1),
+  turn_to: z.string().min(1),
+  title: z.string().min(1),
+  body: z.string().min(1).max(800),
+  truncated: z.boolean(),
+});
+
+export type SessionSummary = z.infer<typeof SessionSummarySchema>;
+
+export const NpcArchiveModelSchema = z.object({
+  title: z.string().min(1),
+  summary: z.string().min(1).max(800),
+  salient_quotes: z.array(NpcArchiveQuoteSchema).max(3),
+  distilled_body: z.string(),
+});
+
+export type NpcArchiveModel = z.infer<typeof NpcArchiveModelSchema>;
+
+/** Flash often overshoots 0–3 quotes. Cap list/text only; never clip distilled_body. */
+export function parseNpcArchiveModel(raw: unknown): NpcArchiveModel {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const quotes = asList(o.salient_quotes)
+    .filter((q): q is Record<string, unknown> => !!q && typeof q === "object")
+    .slice(0, 3)
+    .map((q) => ({
+      turn_id: String(q.turn_id ?? "").trim(),
+      speaker: String(q.speaker ?? "").trim(),
+      text: String(q.text ?? "").trim().slice(0, 120),
+    }));
+  return NpcArchiveModelSchema.parse({
+    title: o.title,
+    summary: o.summary,
+    salient_quotes: quotes,
+    distilled_body: o.distilled_body,
+  });
+}
+

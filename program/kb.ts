@@ -1,10 +1,11 @@
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { HttpError } from "./errors.ts";
 import {
   DEFAULT_WORLD_TITLE,
+  CompactStateSchema,
   DirtySetSchema,
   EMPTY_DIRTY_SET,
   EMPTY_NPC_POOL,
@@ -15,6 +16,7 @@ import {
   RelationSchema,
   SceneStateSchema,
   WorldSchema,
+  type CompactState,
   type DirtySet,
   type Entity,
   type Episode,
@@ -34,6 +36,11 @@ export const kbRuntimeDir =
   process.env.VIBE_GAMEVERSE_KB_RUNTIME?.trim() || join(root, "kb", "runtime");
 
 export const npcMemoryDir = join(kbRuntimeDir, "npc-memory");
+export const playSessionsDir = join(kbRuntimeDir, "play-sessions");
+export const sessionArchiveDir = join(kbRuntimeDir, "session-archive");
+export const compactScratchDir = join(kbRuntimeDir, "compact-scratch");
+export const compactStatePath = join(kbRuntimeDir, "compact-state.json");
+const legacyPiSessionsDir = join(kbRuntimeDir, "pi-sessions");
 
 const paths = {
   episodes: join(kbRuntimeDir, "episodes.json"),
@@ -143,9 +150,29 @@ export async function syncWorldGate(): Promise<WorldGate> {
   return { needs_setup: false, world: inspect.world };
 }
 
+export async function migratePlaySessionDir(): Promise<void> {
+  await mkdir(kbRuntimeDir, { recursive: true });
+  const oldExists = await dirExists(legacyPiSessionsDir);
+  const newExists = await dirExists(playSessionsDir);
+  if (oldExists && !newExists) {
+    await rename(legacyPiSessionsDir, playSessionsDir);
+  }
+}
+
+async function dirExists(path: string): Promise<boolean> {
+  try {
+    const s = await stat(path);
+    return s.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export async function ensureRuntime(): Promise<void> {
   await syncWorldGate();
   await mkdir(npcMemoryDir, { recursive: true });
+  await migratePlaySessionDir();
+  if (!(await getNeedsSetup())) await loadCompactState();
 }
 
 export async function getNeedsSetup(): Promise<boolean> {
@@ -162,7 +189,11 @@ export async function clearPlaythrough(): Promise<void> {
     await rm(join(kbRuntimeDir, f), { force: true });
   }
   await rm(join(kbRuntimeDir, "prompts"), { recursive: true, force: true });
-  await rm(join(kbRuntimeDir, "pi-sessions"), { recursive: true, force: true });
+  await rm(playSessionsDir, { recursive: true, force: true });
+  await rm(legacyPiSessionsDir, { recursive: true, force: true });
+  await rm(sessionArchiveDir, { recursive: true, force: true });
+  await rm(compactScratchDir, { recursive: true, force: true });
+  await rm(compactStatePath, { force: true });
   await rm(npcMemoryDir, { recursive: true, force: true });
 }
 
@@ -210,6 +241,7 @@ export async function commitDefaultWorld(): Promise<World> {
     ["gm_note.txt", INITIAL_GM_NOTE],
     ["scene.json", JSON.stringify(INITIAL_SCENE, null, 2)],
     ["turn_counter.json", JSON.stringify({ n: 0 })],
+    ["compact-state.json", JSON.stringify({ anchor_turn_n: 0 } satisfies CompactState, null, 2)],
     ["world.json", JSON.stringify(world, null, 2)],
     ["npc-memory/pool.json", JSON.stringify(EMPTY_NPC_POOL, null, 2)],
     [
@@ -253,6 +285,7 @@ export async function commitCustomWorld(primer: Primer, generated: GeneratedWorl
     ["gm_note.txt", generated.gm_note],
     ["scene.json", JSON.stringify(generated.scene, null, 2)],
     ["turn_counter.json", JSON.stringify({ n: 0 })],
+    ["compact-state.json", JSON.stringify({ anchor_turn_n: 0 } satisfies CompactState, null, 2)],
     ["primer.json", JSON.stringify(primer, null, 2)],
     ["gm_canon.md", generated.gm_canon],
     ["world.json", JSON.stringify(world, null, 2)],
@@ -307,7 +340,7 @@ export async function loadDirtySet(): Promise<DirtySet> {
 
 export async function saveDirtySet(dirty: DirtySet): Promise<void> {
   await mkdir(npcMemoryDir, { recursive: true });
-  const parsed = DirtySetSchema.parse({ ...dirty, since_session_archive: null });
+  const parsed = DirtySetSchema.parse(dirty);
   await writeFile(join(npcMemoryDir, "dirty-set.json"), JSON.stringify(parsed, null, 2));
 }
 
@@ -366,6 +399,31 @@ export async function loadScene(): Promise<SceneState | null> {
   } catch {
     return null;
   }
+}
+
+export async function saveScene(scene: SceneState): Promise<void> {
+  await writeFile(paths.scene, JSON.stringify(SceneStateSchema.parse(scene), null, 2));
+}
+
+export async function loadCompactState(): Promise<CompactState> {
+  try {
+    const raw = JSON.parse(await readFile(compactStatePath, "utf8"));
+    return CompactStateSchema.parse(raw);
+  } catch {
+    const init: CompactState = { anchor_turn_n: 0 };
+    await saveCompactState(init);
+    return init;
+  }
+}
+
+export async function saveCompactState(state: CompactState): Promise<void> {
+  await mkdir(kbRuntimeDir, { recursive: true });
+  await writeFile(compactStatePath, JSON.stringify(CompactStateSchema.parse(state), null, 2));
+}
+
+export async function peekTurnId(): Promise<string> {
+  const c = await readJson<{ n: number }>(paths.turnCounter, { n: 0 });
+  return `t${String(Math.max(0, c.n)).padStart(4, "0")}`;
 }
 
 export async function nextTurnId(): Promise<string> {

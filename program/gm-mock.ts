@@ -40,6 +40,7 @@ function mockCustomGm(ctx: GmContext): GmOutput {
       },
     ],
     gm_note: ctx.gm_note.slice(0, 800) || "本場進行中。玩家在霧港客棧。",
+    scene: ctx.scene,
     ui: null,
     needs_image: false,
   };
@@ -77,6 +78,7 @@ export function mockGm(ctx: GmContext, world?: World | null): GmOutput {
       ],
       gm_note:
         "玩家剛離開門口。在場：瑪拉、灰仍在酒館。未決：紙條尚未交給玩家則鉤子仍在。本場目標：線索（蠟封北路紙條）。回來時記得先前對話。",
+      scene: ctx.scene,
       ui: null,
       needs_image: false,
     };
@@ -107,6 +109,7 @@ export function mockGm(ctx: GmContext, world?: World | null): GmOutput {
       ],
       gm_note:
         "小事件已觸發：玩家拿到蠟封紙條。瑪拉知情但防備。灰已露面。本場目標達成一條線索。鉤子：是否追問瑪拉燈手。",
+      scene: ctx.scene,
       ui: null,
       needs_image: false,
     };
@@ -133,6 +136,7 @@ export function mockGm(ctx: GmContext, world?: World | null): GmOutput {
       ],
       gm_note:
         "玩家已正視神秘客灰。瑪拉在吧台留意。未決鉤子：蠟封紙條尚未交出。本場目標：線索。可追問紙條／怪人。",
+      scene: ctx.scene,
       ui: null,
       needs_image: false,
     };
@@ -156,6 +160,7 @@ export function mockGm(ctx: GmContext, world?: World | null): GmOutput {
       ],
       gm_note:
         "玩家在打聽怪人；瑪拉防備中。神秘客尚未被玩家走到桌前。鉤子：追問／觀察角落。本場目標：線索。",
+      scene: ctx.scene,
       ui: null,
       needs_image: false,
     };
@@ -188,6 +193,7 @@ export function mockGm(ctx: GmContext, world?: World | null): GmOutput {
       },
     ],
     gm_note: ctx.gm_note.slice(0, 800) || "玩家在酒館。目標：線索。鉤子：問怪人／角落。",
+    scene: ctx.scene,
     ui: null,
     needs_image: false,
   };
