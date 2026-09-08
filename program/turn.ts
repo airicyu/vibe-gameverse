@@ -3,8 +3,11 @@ import { maybeCompactAfterTurn } from "./compact.ts";
 import { mockGm } from "./gm-mock.ts";
 import { piGm } from "./gm-pi.ts";
 import {
+  appendChatTail,
   buildMemorySlice,
+  getScreen,
   loadEntities,
+  loadEpisodes,
   loadGmNote,
   loadNpcPool,
   loadScene,
@@ -18,6 +21,9 @@ import { formatRecallForGm, gatherRecallSnippets } from "./recall.ts";
 import { parseGmOutput, PlayerInputSchema, type GmOutput, type PlayerInput } from "./schema.ts";
 import { writeFromGm } from "./writer.ts";
 
+/** 隱式開場舉動（寫進 KB，UI 不顯示玩家氣泡）。場景中性：不假設門／室內／特定地貌。 */
+export const OPENING_PLAYER_TEXT = "我環顧四周。";
+
 export type TurnResult = {
   turn_id: string;
   gm: GmOutput;
@@ -30,6 +36,9 @@ function gmMode(): "pi" | "mock" {
 
 export async function runTurn(raw: unknown): Promise<TurnResult> {
   const t0 = Date.now();
+  if ((await getScreen()) !== "playing") {
+    throw new HttpError(409, { error: "not_playing", needs_setup: true });
+  }
   const gate = await syncWorldGate();
   if (gate.needs_setup) {
     throw new HttpError(409, { needs_setup: true, error: "needs_setup" });
@@ -93,8 +102,37 @@ export async function runTurn(raw: unknown): Promise<TurnResult> {
   turnLog(turn_id, `write events=${gm.events.length} npc_lines=${gm.npc_lines.length}`);
   const episodes = await writeFromGm(gm, turn_id, timestamp, scene_id);
   await saveGmNote(gm.gm_note);
+  await appendChatTail({
+    turn_id,
+    player_text: input.player_text,
+    hide_player: input.player_text === OPENING_PLAYER_TEXT,
+    narration: gm.narration,
+    npc_lines: gm.npc_lines.map((l) => ({
+      npc_id: l.npc_id,
+      ...(l.name ? { name: l.name } : {}),
+      text: l.text,
+    })),
+  });
   await maybeCompactAfterTurn({ turnId: turn_id, gm, sceneBefore: scene, mock: mode === "mock" });
   turnLog(turn_id, `ok   ${Date.now() - t0}ms  episodes_written=${episodes.length}`);
 
   return { turn_id, gm, episodes_written: episodes.length };
+}
+
+/**
+ * 尚無 episode 時自動跑一回合開場引子。
+ * 失敗不拋（避免擋 setup／load）；回 null 讓 UI 退回短系統句。
+ */
+export async function runOpeningTurnIfNeeded(): Promise<TurnResult | null> {
+  if ((await getScreen()) !== "playing") return null;
+  const episodes = await loadEpisodes();
+  if (episodes.length > 0) return null;
+  try {
+    turnLog("open", "auto opening turn");
+    return await runTurn({ player_text: OPENING_PLAYER_TEXT });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    turnLog("open", `opening failed  ${msg}`);
+    return null;
+  }
 }

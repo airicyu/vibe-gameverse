@@ -2,8 +2,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-process.env.VIBE_GAMEVERSE_KB_RUNTIME = mkdtempSync(join(tmpdir(), "vibe-gameverse-test-"));
-process.env.VIBE_GAMEVERSE_LOG = join(process.env.VIBE_GAMEVERSE_KB_RUNTIME, "server.log");
+process.env.VIBE_GAMEVERSE_KB_WORLDS = mkdtempSync(join(tmpdir(), "vibe-gameverse-worlds-"));
+process.env.VIBE_GAMEVERSE_LOG = join(process.env.VIBE_GAMEVERSE_KB_WORLDS, "server.log");
 if (!process.env.GM_MODE) process.env.GM_MODE = "mock";
 if (!process.env.VIBE_GAMEVERSE_CONFIG) {
   const cfgDir = mkdtempSync(join(tmpdir(), "vibe-gameverse-cfg-"));
@@ -19,4 +19,3 @@ if (!process.env.VIBE_GAMEVERSE_CONFIG) {
   );
   process.env.VIBE_GAMEVERSE_CONFIG = cfgPath;
 }
-

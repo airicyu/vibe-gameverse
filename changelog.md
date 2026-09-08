@@ -4,6 +4,46 @@
 
 ---
 
+## 0.8.0 — 角色記憶：情景摘要與定位（2026-09-09）
+
+廢 `salient_quotes` 與 session jsonl 剪句餵 GM。過去＝情景 summary + locator。回想新增閘門（iii）：點名 L2＋有 archive 即可掃（不要求 present／不要求名缺席近 8 episode）。對白全文只在 `session-archive` jsonl。不 hop。不改 0.6.0 compact scope。見 `docs/roadmap/0.8.0/`。
+
+### Changed
+
+- NPC archive 新寫入省略 `salient_quotes`；index 帶 `summary`、刪 `quote_count`
+- Compact NPC 短呼叫只出 `title`／`summary`／`distilled_body`
+- 回想只餵 summary＋locator；刪 `excerptJsonl` 熱路徑
+- 點名已離場／不在場 L2 仍可召 archive（閘門 iii）
+
+### Non-goals
+
+- GM 讀檔 tool、每回合掃全部 archive、心理欄、歷史 UI、舊 quotes hop、改 compact 觸發表
+
+---
+
+## 0.7.0 — 多世界存檔（2026-09-09）
+
+玩家可同時保留多份完整 playthrough（各 uuid 目錄），從主頁開始新故事或載入；開新不得抹其他存檔。遊玩中可回主頁（不清檔）或輸入 `delete` 刪目前這份。新 process 啟動刪 pointer→一律主頁。舊 `kb/runtime/` 不讀不搬。見 `docs/roadmap/0.7.0/`。
+
+### Added
+
+- Parent `kb/worlds/`；每存檔 `kb/worlds/{uuid}/`（`world.json` 含 `save_name`）；`current.json` pointer
+- 主頁畫面；`GET /api/state` 的 `screen`／`save`；`GET /api/worlds`；`POST /api/worlds/load`｜`/home`｜`/worlds/delete`
+- Setup 必帶 `save_name`（寫入單一 `world.json`，兼 UI title；無另檔 `save.json`／`title`）；env `VIBE_GAMEVERSE_KB_WORLDS`
+- Setup／首次進入（零 episode）自動開場回合；回應 `opening`；UI 只渲染 GM 氣泡
+
+### Changed
+
+- 廢「清空唯一 runtime」的 new-game 語意（`/api/new-game`＝`/api/home`）
+- 忽略舊鍵 `VIBE_GAMEVERSE_KB_RUNTIME`；gitignore `kb/worlds/`
+- `world.json` 單檔含 `save_name`（不再另開 `save.json`／`title`）
+
+### Non-goals
+
+- 舊 runtime hop、同一世界多槽、匯出／雲同步、開機「繼續上次」
+
+---
+
 ## 0.6.0 — Compact 分 scope 與同回合平行（2026-09-08）
 
 人離開舞台時只封該名 L2；jsonl 換檔是較瘦的 session 線。廢 0.5.0 judge 與進出問整場。同一 HTTP 回合內 `allSettled` 平行短呼叫，不背景、不鎖。失敗解耦。倉庫 `max_turns_without_compact` 預設 8。見 `docs/roadmap/0.6.0/`。

@@ -229,6 +229,26 @@ export const EpisodeSchema = z.object({
 
 export type Episode = z.infer<typeof EpisodeSchema>;
 
+/** UI 載入／重整用：近期對局氣泡（非 GM 記憶切片）。 */
+export const ChatTailEntrySchema = z.object({
+  turn_id: z.string(),
+  player_text: z.string(),
+  /** 開場隱含句：寫入但不在 UI 顯示玩家氣泡。 */
+  hide_player: z.boolean(),
+  narration: z.string(),
+  npc_lines: z.array(
+    z.object({
+      npc_id: z.string(),
+      name: z.string().optional(),
+      text: z.string(),
+    }),
+  ),
+});
+
+export type ChatTailEntry = z.infer<typeof ChatTailEntrySchema>;
+
+export const CHAT_TAIL_KEEP = 12;
+
 const optionalPersona = z.preprocess((value) => {
   if (value == null) return undefined;
   if (typeof value !== "string") return value;
@@ -308,51 +328,62 @@ export const EMPTY_DIRTY_SET: DirtySet = {
 
 export const NPC_ARCHIVE_ID_RE = /^na_[a-z][a-z0-9_]*_[0-9]{3,}$/;
 
+/** @deprecated 0.8.0 起不再寫入；保留型別僅供讀舊檔時 strip。 */
+/** @deprecated 0.8.0 起不再寫入；保留型別僅供文件／舊測對照。 */
 export const NpcArchiveQuoteSchema = z.object({
   turn_id: z.string().min(1),
   speaker: z.string().min(1),
   text: z.string().min(1).max(120),
 });
 
-export const NpcArchiveEntrySchema = z
-  .object({
-    npc_archive_id: z.string().regex(NPC_ARCHIVE_ID_RE),
-    npc_id: z.string().min(1),
-    session_archive_id: z.string().min(1).optional(),
-    turn_from: z.string().min(1),
-    turn_to: z.string().min(1),
-    title: z.string().min(1),
-    summary: z.string().min(1).max(800),
-    salient_quotes: z.array(NpcArchiveQuoteSchema).max(3),
-  })
-  .superRefine((entry, ctx) => {
-    for (const [i, q] of entry.salient_quotes.entries()) {
-      if (q.speaker !== entry.npc_id && q.speaker !== "player") {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "salient_quotes.speaker must be this npc_id or player",
-          path: ["salient_quotes", i, "speaker"],
-        });
-      }
-    }
-  });
-
-export type NpcArchiveEntry = z.infer<typeof NpcArchiveEntrySchema>;
-
-export const NpcArchiveIndexSchema = z.object({
+const NpcArchiveEntryObjectSchema = z.object({
+  npc_archive_id: z.string().regex(NPC_ARCHIVE_ID_RE),
   npc_id: z.string().min(1),
-  entries: z.array(
-    z.object({
-      npc_archive_id: z.string().regex(NPC_ARCHIVE_ID_RE),
-      session_archive_id: z.string().min(1).optional(),
-      turn_from: z.string().min(1),
-      turn_to: z.string().min(1),
-      title: z.string().min(1),
-      body_chars: z.number().int(),
-      quote_count: z.number().int(),
-    }),
-  ),
+  session_archive_id: z.string().min(1).optional(),
+  turn_from: z.string().min(1),
+  turn_to: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().min(1).max(800),
 });
+
+/** 新寫入省略 salient_quotes；舊檔多餘該欄 strip 後合法。 */
+export const NpcArchiveEntrySchema = z.preprocess((raw) => {
+  if (!raw || typeof raw !== "object") return raw;
+  const { salient_quotes: _ignored, ...rest } = raw as Record<string, unknown>;
+  return rest;
+}, NpcArchiveEntryObjectSchema);
+
+export type NpcArchiveEntry = z.infer<typeof NpcArchiveEntryObjectSchema>;
+
+const NpcArchiveIndexEntryObjectSchema = z.object({
+  npc_archive_id: z.string().regex(NPC_ARCHIVE_ID_RE),
+  session_archive_id: z.string().min(1).optional(),
+  turn_from: z.string().min(1),
+  turn_to: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  body_chars: z.number().int(),
+});
+
+export const NpcArchiveIndexSchema = z.preprocess((raw) => {
+  if (!raw || typeof raw !== "object") return raw;
+  const o = raw as Record<string, unknown>;
+  const entries = Array.isArray(o.entries)
+    ? o.entries.map((ent) => {
+        if (!ent || typeof ent !== "object") return ent;
+        const e = { ...(ent as Record<string, unknown>) };
+        delete e.quote_count;
+        if (typeof e.summary !== "string" || !e.summary) {
+          e.summary = typeof e.title === "string" ? e.title : "";
+        }
+        return e;
+      })
+    : o.entries;
+  return { ...o, entries };
+}, z.object({
+  npc_id: z.string().min(1),
+  entries: z.array(NpcArchiveIndexEntryObjectSchema),
+}));
 
 export type NpcArchiveIndex = z.infer<typeof NpcArchiveIndexSchema>;
 
@@ -391,18 +422,48 @@ export type GmContext = {
 
 export const ENTITY_ID_RE = /^[a-z][a-z0-9_]*$/;
 
+/** UUID directory name: lowercase 8-4-4-4-12. */
+export const WORLD_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** 單一 world.json：id＋save_name＋source；不再另開 save.json／title。 */
 export const WorldSchema = z.object({
+  id: z.string().regex(WORLD_UUID_RE),
   source: z.enum(["default", "custom"]),
-  title: z.string().min(1).max(40),
+  save_name: z.string().min(1).max(40),
   created_at: z.string().min(1),
 });
 
 export type World = z.infer<typeof WorldSchema>;
 
-export const DEFAULT_WORLD_TITLE = "鏽燈酒館";
+/** API／清單用的精簡形；與 world.id／save_name 同源。 */
+export const SaveMetaSchema = z.object({
+  id: z.string().regex(WORLD_UUID_RE),
+  save_name: z.string().min(1).max(40),
+});
+
+export type SaveMeta = z.infer<typeof SaveMetaSchema>;
+
+export function saveMetaFromWorld(world: World): SaveMeta {
+  return { id: world.id, save_name: world.save_name };
+}
+
+export const CurrentPointerSchema = z.object({
+  id: z.string().min(1),
+});
+
+export type CurrentPointer = z.infer<typeof CurrentPointerSchema>;
 
 function trimField(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+/** save_name：trim 後 UTF-16 長度 1–40。 */
+export function parseSaveName(raw: unknown): string {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (s.length < 1 || s.length > 40) {
+    throw new Error("save_name_invalid");
+  }
+  return s;
 }
 
 /** 四欄 primer；缺鍵當 ""。長度一律 trim 後的 UTF-16 length。 */
@@ -557,27 +618,17 @@ export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 export const NpcArchiveModelSchema = z.object({
   title: z.string().min(1),
   summary: z.string().min(1).max(800),
-  salient_quotes: z.array(NpcArchiveQuoteSchema).max(3),
   distilled_body: z.string(),
 });
 
 export type NpcArchiveModel = z.infer<typeof NpcArchiveModelSchema>;
 
-/** Flash often overshoots 0–3 quotes. Cap list/text only; never clip distilled_body. */
+/** 0.8.0：只收 title／summary／distilled_body；多餘 salient_quotes 忽略。 */
 export function parseNpcArchiveModel(raw: unknown): NpcArchiveModel {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const quotes = asList(o.salient_quotes)
-    .filter((q): q is Record<string, unknown> => !!q && typeof q === "object")
-    .slice(0, 3)
-    .map((q) => ({
-      turn_id: String(q.turn_id ?? "").trim(),
-      speaker: String(q.speaker ?? "").trim(),
-      text: String(q.text ?? "").trim().slice(0, 120),
-    }));
   return NpcArchiveModelSchema.parse({
     title: o.title,
     summary: o.summary,
-    salient_quotes: quotes,
     distilled_body: o.distilled_body,
   });
 }

@@ -17,7 +17,9 @@ import {
 import { getAppConfig, resetAppConfigCache } from "./config.ts";
 import {
   INITIAL_SCENE,
+  activateTestWorld,
   kbRuntimeDir,
+  wipeWorlds,
   loadCompactState,
   loadDirtySet,
   loadL2Current,
@@ -27,17 +29,18 @@ import {
   resetPlaythrough,
   saveCompactState,
   saveL2Current,
+  npcMemoryDir,
   sessionArchiveDir,
   setupDefaultForTest,
 } from "./kb.ts";
-import { gatherRecallSnippets } from "./recall.ts";
+import { formatRecallForGm, gatherRecallSnippets } from "./recall.ts";
 import type { GmOutput } from "./schema.ts";
 import { runTurn } from "./turn.ts";
 import { writeFromGm } from "./writer.ts";
 
 async function wipe(): Promise<void> {
-  await rm(kbRuntimeDir, { recursive: true, force: true });
-  await mkdir(kbRuntimeDir, { recursive: true });
+  await wipeWorlds();
+  await activateTestWorld();
   setCompactTestHooks(null);
 }
 
@@ -234,7 +237,7 @@ test("injected compact archives jsonl, writes L2 archive, shortens current, sets
     npcArchive: () => ({
       title: "瑪拉本段",
       summary: "吧台把北路壓低了聲。",
-      salient_quotes: [{ turn_id: "t0005", speaker: "bartender", text: "今晚不能讓第三人聽見。" }],
+
       distilled_body: "剛封過一幕。北路不當眾說。",
     }),
   });
@@ -252,33 +255,44 @@ test("injected compact archives jsonl, writes L2 archive, shortens current, sets
   expect((await loadDirtySet()).since_session_archive).toBe("sa_001");
 });
 
-test("npc archive extra salient_quotes are capped not fail-closed", async () => {
+test("npc archive model ignores salient_quotes; disk has no quotes key", async () => {
   await wipe();
   await setupDefaultForTest();
-  await writeFromGm(talk(), "t0005", new Date().toISOString(), "tavern");
-  await saveL2Current({ npc_id: "bartender", body: "記".repeat(640), updated_turn: 5 });
+  await writeFromGm(leaveAshGm(), "t0008", new Date().toISOString(), "tavern");
   await seedLiveJsonl();
   setCompactTestHooks({
-    summary: () => ({ title: "出門", body: "離開酒館上北路。" }),
-    npcArchive: (npcId) => ({
-      title: `${npcId} 本段`,
-      summary: "本段知情。",
+    npcArchive: async () => ({
+      title: "灰離場",
+      summary: "字條未交，灰已不在場內。",
       salient_quotes: [
-        { turn_id: "t0001", speaker: npcId, text: "一" },
-        { turn_id: "t0002", speaker: npcId, text: "二" },
-        { turn_id: "t0003", speaker: npcId, text: "三" },
-        { turn_id: "t0004", speaker: npcId, text: "四不該留下" },
+        { turn_id: "t0001", speaker: "ash", text: "不該留下一" },
+        { turn_id: "t0002", speaker: "ash", text: "不該留下二" },
+        { turn_id: "t0003", speaker: "player", text: "不該留下三" },
+        { turn_id: "t0004", speaker: "ash", text: "四不該留下" },
       ],
       distilled_body: "短記憶。",
     }),
   });
-  const result = await maybeCompactAfterTurn({ turnId: "t0020", gm: talk(), sceneBefore: INITIAL_SCENE, mock: true });
-  expect(result.compacted).toBe(true);
-  const entry = JSON.parse(
-    await readFile(join(kbRuntimeDir, "npc-memory", "l2", "bartender", "archive", "na_bartender_001.json"), "utf8"),
-  );
-  expect(entry.salient_quotes).toHaveLength(3);
-  expect(entry.salient_quotes.map((q: { text: string }) => q.text)).not.toContain("四不該留下");
+  const { parseNpcArchiveModel } = await import("./schema.ts");
+  const modeled = parseNpcArchiveModel({
+    title: "灰離場",
+    summary: "字條未交，灰已不在場內。",
+    salient_quotes: [{ turn_id: "t0001", speaker: "wrong", text: "x" }],
+    distilled_body: "短記憶。",
+  });
+  expect("salient_quotes" in modeled).toBe(false);
+  expect(modeled.distilled_body).toBe("短記憶。");
+  await maybeCompactAfterTurn({
+    turnId: "t0008",
+    gm: leaveAshGm(),
+    sceneBefore: INITIAL_SCENE,
+    mock: true,
+  });
+  const ashPath = join(kbRuntimeDir, "npc-memory", "l2", "ash", "archive", "na_ash_001.json");
+  expect(existsSync(ashPath)).toBe(true);
+  const onDisk = JSON.parse(await readFile(ashPath, "utf8"));
+  expect("salient_quotes" in onDisk).toBe(false);
+  expect(onDisk.summary).toContain("字條");
 });
 
 test("debugRunCompact skips judge and archives", async () => {
@@ -291,7 +305,7 @@ test("debugRunCompact skips judge and archives", async () => {
     npcArchive: () => ({
       title: "瑪拉本段",
       summary: "除錯封存。",
-      salient_quotes: [],
+
       distilled_body: "短。",
     }),
   });
@@ -317,7 +331,7 @@ test("fail after apply restores jsonl and keeps prior npc archive files", async 
       turn_to: "t0004",
       title: "舊幕",
       summary: "先前已封成功的主觀檔。",
-      salient_quotes: [],
+
     }),
   );
   await writeFile(
@@ -330,8 +344,8 @@ test("fail after apply restores jsonl and keeps prior npc archive files", async 
           turn_from: "t0001",
           turn_to: "t0004",
           title: "舊幕",
+          summary: "情景摘要",
           body_chars: 10,
-          quote_count: 0,
         },
       ],
     }),
@@ -341,7 +355,7 @@ test("fail after apply restores jsonl and keeps prior npc archive files", async 
     npcArchive: () => ({
       title: "新",
       summary: "新摘要",
-      salient_quotes: [],
+
       distilled_body: "短",
     }),
     failAfterApply: () => {
@@ -366,7 +380,7 @@ test("fail after scratch leaves live jsonl and no half archive", async () => {
     npcArchive: () => ({
       title: "n",
       summary: "s",
-      salient_quotes: [],
+
       distilled_body: "短",
     }),
     failAfterScratch: () => {
@@ -391,7 +405,7 @@ test("force line skips judge veto and marks truncated", async () => {
     npcArchive: () => ({
       title: "n",
       summary: "s",
-      salient_quotes: [],
+
       distilled_body: "短記憶",
     }),
   });
@@ -439,7 +453,8 @@ test("opening formatter includes tail pairs; missing pairs still compact", () =>
   expect(empty.includes("Recent dialogue")).toBe(false);
 });
 
-test("recall idle has no excerpts; past hint opens at most two", async () => {
+
+test("recall: past hint opens session summary only; no jsonl excerpts", async () => {
   await wipe();
   await setupDefaultForTest();
   await mkdir(join(sessionArchiveDir, "sa_001"), { recursive: true });
@@ -487,7 +502,61 @@ test("recall idle has no excerpts; past hint opens at most two", async () => {
   });
   expect(hit.length).toBeGreaterThan(0);
   expect(hit.length).toBeLessThanOrEqual(2);
-  expect(hit[0]?.excerpts.length ?? 0).toBeLessThanOrEqual(3);
+  const formatted = formatRecallForGm(hit);
+  expect(formatted).toContain("虛構廣場上有過爭論");
+  expect(formatted).toContain("t0001");
+  expect(formatted).not.toContain("那時燈還亮著");
+});
+
+test("recall gate iii: named absent L2 still opens archive summary", async () => {
+  await wipe();
+  await setupDefaultForTest();
+  const ashDir = join(npcMemoryDir, "l2", "ash", "archive");
+  await mkdir(ashDir, { recursive: true });
+  await writeFile(
+    join(ashDir, "index.json"),
+    JSON.stringify({
+      npc_id: "ash",
+      entries: [
+        {
+          npc_archive_id: "na_ash_001",
+          turn_from: "t0001",
+          turn_to: "t0007",
+          title: "字條未交",
+          summary: "灰帶著未交的字條離開酒館。",
+          body_chars: 20,
+        },
+      ],
+    }),
+  );
+  await writeFile(
+    join(ashDir, "na_ash_001.json"),
+    JSON.stringify({
+      npc_archive_id: "na_ash_001",
+      npc_id: "ash",
+      turn_from: "t0001",
+      turn_to: "t0007",
+      title: "字條未交",
+      summary: "灰帶著未交的字條離開酒館。",
+    }),
+  );
+  const hit = await gatherRecallSnippets({
+    playerText: "灰怎麼了",
+    scene: { scene_id: "tavern", present: ["player", "bartender"], visible: ["player", "bartender"] },
+    entities: [
+      { id: "player", name: "P", kind: "player", summary: "p" },
+      { id: "bartender", name: "瑪拉", kind: "npc", summary: "b", memory_tier: 2 },
+      { id: "ash", name: "灰", kind: "npc", summary: "a", memory_tier: 2 },
+    ],
+    memorySlice: {
+      episodes: [{ id: "e1", summary: "灰倒下後瑪拉收了杯子。", timestamp: "2026-01-01T00:00:00Z" }],
+      entities: [],
+      relations: [],
+    },
+  });
+  expect(hit.some((h) => h.kind === "npc" && h.npcId === "ash")).toBe(true);
+  const formatted = formatRecallForGm(hit);
+  expect(formatted).toContain("未交的字條");
 });
 
 test("mock runTurn twenty times does not compact without inject", async () => {
@@ -503,15 +572,13 @@ test("mock runTurn twenty times does not compact without inject", async () => {
 test("custom without L2 still archives jsonl on inject", async () => {
   await wipe();
   const { setupCustom } = await import("./setup.ts");
-  const { PrimerSchema } = await import("./schema.ts");
-  await setupCustom(
-    PrimerSchema.parse({
-      worldview: "紫晶沙漠裡的鐘樓每小時倒轉一次，沙粒會記住說出口的謊。",
-      protagonist: "",
-      extras: "",
-      starting_point: "玩家在一座沒有門牌的石棧醒來，風裡全是鹽。",
-    }),
-  );
+  await setupCustom({
+    save_name: "t",
+    worldview: "紫晶沙漠裡的鐘樓每小時倒轉一次，沙粒會記住說出口的謊。",
+    protagonist: "",
+    extras: "",
+    starting_point: "玩家在一座沒有門牌的石棧醒來，風裡全是鹽。",
+  });
   expect(existsSync(join(kbRuntimeDir, "npc-memory", "l2", "bartender"))).toBe(false);
   await seedLiveJsonl();
   const scene = await loadScene();
@@ -575,7 +642,6 @@ function leaveAshGm(): GmOutput {
 const npcHook = () => ({
   title: "本段",
   summary: "知情。",
-  salient_quotes: [] as { turn_id: string; speaker: string; text: string }[],
   distilled_body: "短記憶。",
 });
 
@@ -600,6 +666,8 @@ test("qualified L2 leave archives that npc only; jsonl and anchor stay", async (
     await readFile(join(kbRuntimeDir, "npc-memory", "l2", "ash", "archive", "na_ash_001.json"), "utf8"),
   );
   expect(ashEntry.session_archive_id).toBeUndefined();
+  expect("salient_quotes" in ashEntry).toBe(false);
+  expect(typeof ashEntry.summary).toBe("string");
   expect((await loadL2Current("bartender"))?.body).toBe(barBefore);
   expect((await loadCompactState()).anchor_turn_n).toBe(0);
 });

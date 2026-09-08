@@ -7,7 +7,9 @@ import {
   commitCustomWorld,
   DEFAULT_L2_CURRENT_BODY,
   INITIAL_SCENE,
+  activateTestWorld,
   kbRuntimeDir,
+  wipeWorlds,
   loadDirtySet,
   loadEntities,
   loadL2Current,
@@ -43,8 +45,8 @@ const LONG_PRIMER = PrimerSchema.parse({
 });
 
 async function wipe(): Promise<void> {
-  await rm(kbRuntimeDir, { recursive: true, force: true });
-  await mkdir(kbRuntimeDir, { recursive: true });
+  await wipeWorlds();
+  await activateTestWorld();
 }
 
 async function walkFiles(dir: string): Promise<string[]> {
@@ -110,7 +112,7 @@ test("memory_tier: npc missing is 0; non-npc with value fails", () => {
   ).toThrow();
 });
 
-test("archive schemas parse; speaker must be npc or player", () => {
+test("archive schemas: new writes omit quotes; old quotes strip; index has summary", () => {
   const index = NpcArchiveIndexSchema.parse({
     npc_id: "bartender",
     entries: [
@@ -119,12 +121,15 @@ test("archive schemas parse; speaker must be npc or player", () => {
         turn_from: "t0030",
         turn_to: "t0042",
         title: "北路",
+        summary: "北路燈手未回，知情壓著。",
         body_chars: 400,
         quote_count: 1,
       },
     ],
   });
   expect(index.entries[0]?.npc_archive_id).toBe("na_bartender_003");
+  expect(index.entries[0]?.summary).toContain("燈手");
+  expect("quote_count" in (index.entries[0] as object)).toBe(false);
   const entry = NpcArchiveEntrySchema.parse({
     npc_archive_id: "na_bartender_003",
     npc_id: "bartender",
@@ -132,20 +137,10 @@ test("archive schemas parse; speaker must be npc or player", () => {
     turn_to: "t0042",
     title: "北路",
     summary: "知情未說。",
-    salient_quotes: [{ turn_id: "t0031", speaker: "player", text: "燈手呢？" }],
+    salient_quotes: [{ turn_id: "t0031", speaker: "ash", text: "不該知道。" }],
   });
-  expect(entry.salient_quotes).toHaveLength(1);
-  expect(() =>
-    NpcArchiveEntrySchema.parse({
-      npc_archive_id: "na_bartender_003",
-      npc_id: "bartender",
-      turn_from: "t0030",
-      turn_to: "t0042",
-      title: "北路",
-      summary: "知情未說。",
-      salient_quotes: [{ turn_id: "t0031", speaker: "ash", text: "不該知道。" }],
-    }),
-  ).toThrow();
+  expect("salient_quotes" in entry).toBe(false);
+  expect(entry.summary).toBe("知情未說。");
 });
 
 test("default setup L2 files and empty pool for mara/ash", async () => {
@@ -175,7 +170,7 @@ test("generated npc tier 2 is committed as 0 without l2", async () => {
   );
   const parsed = parseGeneratedWorld(generated, LONG_PRIMER);
   expect(parsed.entities.find((e) => e.kind === "npc")?.memory_tier).toBe(0);
-  await commitCustomWorld(LONG_PRIMER, generated);
+  await commitCustomWorld(LONG_PRIMER, generated, "t");
   const entities = await loadEntities();
   expect(entities.find((e) => e.id === "keeper")?.memory_tier).toBe(0);
   expect(existsSync(join(kbRuntimeDir, "npc-memory", "l2", "bartender"))).toBe(false);
@@ -398,9 +393,13 @@ test("dirty near_cap follows L2 body length 640", async () => {
 
 test("custom harbor has no tavern L2; new npc not 2; no archive files", async () => {
   await wipe();
-  await setupCustom(LONG_PRIMER);
+  await setupCustom({ ...LONG_PRIMER, save_name: "t" });
   expect(existsSync(join(kbRuntimeDir, "npc-memory", "l2", "bartender"))).toBe(false);
-  expect((await loadEntities()).find((e) => e.id === "keeper")?.memory_tier).toBe(0);
+  // setup 會跑開場回合；keeper 開口後可能升到 1，但仍不得是 L2／tier 2
+  const keeperTier = (await loadEntities()).find((e) => e.id === "keeper")?.memory_tier;
+  expect(keeperTier).toBeDefined();
+  expect(keeperTier!).toBeLessThan(2);
+  expect(existsSync(join(kbRuntimeDir, "npc-memory", "l2", "keeper"))).toBe(false);
   const result = await runTurn({ player_text: "我向櫃檯點一碗湯" });
   const files = await walkFiles(join(kbRuntimeDir, "npc-memory"));
   expect(files.some((f) => f.includes(`${join("archive")}`))).toBe(false);
@@ -415,4 +414,35 @@ test("runTurn HTTP result has no npc_memories key", async () => {
   const result = await runTurn({ player_text: "你好" });
   expect("npc_memories" in result).toBe(false);
   expect("archive_excerpts" in result).toBe(false);
+});
+
+
+test("writer does not copy npc_lines text verbatim into L2 current.body", async () => {
+  await wipe();
+  await setupDefaultForTest();
+  const line = "這句台詞絕對不該整段進 current";
+  await writeFromGm(
+    {
+      narration: "灰低聲回了一句。",
+      gm_note: "進行中。",
+      scene: { scene_id: "tavern", present: ["player", "ash", "bartender"], visible: [] },
+      npc_lines: [{ npc_id: "ash", name: "灰", text: line }],
+      events: [
+        {
+          actors: ["ash", "player"],
+          action: "reply",
+          result: "quiet",
+          summary: "灰對玩家低聲回應",
+          entity_ids: ["ash", "player"],
+        },
+      ],
+      ui: null,
+      needs_image: false,
+    } as any,
+    "t0001",
+    new Date().toISOString(),
+    "tavern",
+  );
+  const cur = await loadL2Current("ash");
+  expect(cur?.body.includes(line)).toBe(false);
 });

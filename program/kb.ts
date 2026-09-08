@@ -4,20 +4,26 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { HttpError } from "./errors.ts";
 import {
-  DEFAULT_WORLD_TITLE,
   CompactStateSchema,
+  CurrentPointerSchema,
   DirtySetSchema,
   EMPTY_DIRTY_SET,
   EMPTY_NPC_POOL,
+  CHAT_TAIL_KEEP,
+  ChatTailEntrySchema,
   EntitySchema,
   EpisodeSchema,
   L2CurrentSchema,
   NpcPoolSchema,
   RelationSchema,
+  SaveMetaSchema,
+  saveMetaFromWorld,
   SceneStateSchema,
+  WORLD_UUID_RE,
   WorldSchema,
   type CompactState,
   type DirtySet,
+  type ChatTailEntry,
   type Entity,
   type Episode,
   type GeneratedWorld,
@@ -26,24 +32,33 @@ import {
   type NpcPool,
   type Primer,
   type Relation,
+  type SaveMeta,
   type SceneState,
   type World,
 } from "./schema.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const kbSeedDir = join(root, "kb", "seed");
-export const kbRuntimeDir =
-  process.env.VIBE_GAMEVERSE_KB_RUNTIME?.trim() || join(root, "kb", "runtime");
 
-export const npcMemoryDir = join(kbRuntimeDir, "npc-memory");
-export const playSessionsDir = join(kbRuntimeDir, "play-sessions");
-export const sessionArchiveDir = join(kbRuntimeDir, "session-archive");
-export const compactScratchDir = join(kbRuntimeDir, "compact-scratch");
-export const compactStatePath = join(kbRuntimeDir, "compact-state.json");
-const legacyPiSessionsDir = join(kbRuntimeDir, "pi-sessions");
+/** Parent of all world saves. Old VIBE_GAMEVERSE_KB_RUNTIME is ignored. */
+export const kbWorldsDir =
+  process.env.VIBE_GAMEVERSE_KB_WORLDS?.trim() || join(root, "kb", "worlds");
+
+const currentPointerPath = () => join(kbWorldsDir, "current.json");
+
+/** Active playthrough root (pointer target). Null screen → unbound sentinel. */
+export let kbRuntimeDir = join(kbWorldsDir, ".no-active");
+export let npcMemoryDir = join(kbRuntimeDir, "npc-memory");
+export let playSessionsDir = join(kbRuntimeDir, "play-sessions");
+export let sessionArchiveDir = join(kbRuntimeDir, "session-archive");
+export let compactScratchDir = join(kbRuntimeDir, "compact-scratch");
+export let compactStatePath = join(kbRuntimeDir, "compact-state.json");
+let legacyPiSessionsDir = join(kbRuntimeDir, "pi-sessions");
+let activeWorldId: string | null = null;
 
 const paths = {
   episodes: join(kbRuntimeDir, "episodes.json"),
+  chatTail: join(kbRuntimeDir, "chat-tail.json"),
   entities: join(kbRuntimeDir, "entities.json"),
   relations: join(kbRuntimeDir, "relations.json"),
   gmNote: join(kbRuntimeDir, "gm_note.txt"),
@@ -53,6 +68,36 @@ const paths = {
   primer: join(kbRuntimeDir, "primer.json"),
   gmCanon: join(kbRuntimeDir, "gm_canon.md"),
 };
+
+function rebindRuntimePaths(dir: string): void {
+  kbRuntimeDir = dir;
+  npcMemoryDir = join(kbRuntimeDir, "npc-memory");
+  playSessionsDir = join(kbRuntimeDir, "play-sessions");
+  sessionArchiveDir = join(kbRuntimeDir, "session-archive");
+  compactScratchDir = join(kbRuntimeDir, "compact-scratch");
+  compactStatePath = join(kbRuntimeDir, "compact-state.json");
+  legacyPiSessionsDir = join(kbRuntimeDir, "pi-sessions");
+  paths.episodes = join(kbRuntimeDir, "episodes.json");
+  paths.chatTail = join(kbRuntimeDir, "chat-tail.json");
+  paths.entities = join(kbRuntimeDir, "entities.json");
+  paths.relations = join(kbRuntimeDir, "relations.json");
+  paths.gmNote = join(kbRuntimeDir, "gm_note.txt");
+  paths.scene = join(kbRuntimeDir, "scene.json");
+  paths.turnCounter = join(kbRuntimeDir, "turn_counter.json");
+  paths.world = join(kbRuntimeDir, "world.json");
+  paths.primer = join(kbRuntimeDir, "primer.json");
+  paths.gmCanon = join(kbRuntimeDir, "gm_canon.md");
+}
+
+export function worldDir(id: string): string {
+  return join(kbWorldsDir, id);
+}
+
+export function getActiveWorldId(): string | null {
+  return activeWorldId;
+}
+
+export type Screen = "home" | "playing";
 
 export const INITIAL_GM_NOTE =
   "幕：鏽燈酒館。玩家剛進門。瑪拉在吧台。灰在角落，桌上有蠟封紙條。本場目標：讓玩家碰到那條線索。鉤子：問怪人／走向角落。";
@@ -74,6 +119,7 @@ export function l2CurrentPath(npcId: string): string {
 
 const PLAYTHROUGH_FILES = [
   "episodes.json",
+  "chat-tail.json",
   "entities.json",
   "relations.json",
   "gm_note.txt",
@@ -89,6 +135,15 @@ async function readJson<T>(path: string, fallback: T): Promise<T> {
     return JSON.parse(await readFile(path, "utf8")) as T;
   } catch {
     return fallback;
+  }
+}
+
+async function dirExists(path: string): Promise<boolean> {
+  try {
+    const s = await stat(path);
+    return s.isDirectory();
+  } catch {
+    return false;
   }
 }
 
@@ -111,9 +166,10 @@ export type WorldInspect =
   | { kind: "invalid" }
   | { kind: "missing" };
 
-export async function inspectWorld(): Promise<WorldInspect> {
+export async function inspectWorld(atDir?: string): Promise<WorldInspect> {
+  const worldPath = atDir ? join(atDir, "world.json") : paths.world;
   try {
-    const text = await readFile(paths.world, "utf8");
+    const text = await readFile(worldPath, "utf8");
     try {
       const parsed = WorldSchema.safeParse(JSON.parse(text));
       if (parsed.success) return { kind: "valid", world: parsed.data };
@@ -128,16 +184,113 @@ export async function inspectWorld(): Promise<WorldInspect> {
 
 export type WorldGate = { needs_setup: boolean; world: World | null };
 
-async function readGmCanonTrimmed(): Promise<string | null> {
+async function readGmCanonTrimmed(atDir?: string): Promise<string | null> {
+  const canonPath = atDir ? join(atDir, "gm_canon.md") : paths.gmCanon;
   try {
-    return (await readFile(paths.gmCanon, "utf8")).trim();
+    return (await readFile(canonPath, "utf8")).trim();
   } catch {
     return null;
   }
 }
 
-/** 唯一 ready 真相：無效 world；custom 缺／空 gm_canon.md；其餘有效 world（default 忽略 canon）。 */
+async function loadSaveMetaAt(id: string): Promise<SaveMeta | null> {
+  const inspect = await inspectWorld(worldDir(id));
+  if (inspect.kind !== "valid") return null;
+  if (inspect.world.id !== id) return null;
+  return saveMetaFromWorld(inspect.world);
+}
+
+/** Ready for a uuid dir: valid world.json (id＝目錄名；custom 尚須非空 canon). */
+export async function isPlayableWorld(id: string): Promise<boolean> {
+  if (!WORLD_UUID_RE.test(id)) return false;
+  if (!(await dirExists(worldDir(id)))) return false;
+  const inspect = await inspectWorld(worldDir(id));
+  if (inspect.kind !== "valid") return false;
+  if (inspect.world.id !== id) return false;
+  if (inspect.world.source === "custom") {
+    const canon = await readGmCanonTrimmed(worldDir(id));
+    if (canon == null || canon.length === 0) return false;
+  }
+  return true;
+}
+
+export type PlayableWorldListItem = {
+  id: string;
+  save_name: string;
+  source: World["source"];
+  created_at: string;
+};
+
+export async function listPlayableWorlds(): Promise<PlayableWorldListItem[]> {
+  await mkdir(kbWorldsDir, { recursive: true });
+  let names: string[];
+  try {
+    names = await readdir(kbWorldsDir);
+  } catch {
+    return [];
+  }
+  const out: PlayableWorldListItem[] = [];
+  for (const name of names) {
+    if (!WORLD_UUID_RE.test(name)) continue;
+    if (!(await isPlayableWorld(name))) continue;
+    const inspect = await inspectWorld(worldDir(name));
+    if (inspect.kind !== "valid") continue;
+    out.push({
+      id: name,
+      save_name: inspect.world.save_name,
+      source: inspect.world.source,
+      created_at: inspect.world.created_at,
+    });
+  }
+  out.sort((a, b) => {
+    if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  return out;
+}
+
+async function readPointerId(): Promise<string | null> {
+  try {
+    const raw = JSON.parse(await readFile(currentPointerPath(), "utf8"));
+    const parsed = CurrentPointerSchema.safeParse(raw);
+    if (!parsed.success) return null;
+    return parsed.data.id;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPointer(): Promise<void> {
+  await rm(currentPointerPath(), { force: true });
+  activeWorldId = null;
+  rebindRuntimePaths(join(kbWorldsDir, ".no-active"));
+}
+
+export async function writePointer(id: string): Promise<void> {
+  await mkdir(kbWorldsDir, { recursive: true });
+  await writeFile(currentPointerPath(), JSON.stringify({ id }, null, 2));
+}
+
+/** Bind live paths to uuid; write pointer; migrate legacy pi-sessions once. */
+export async function setActiveWorld(id: string | null): Promise<void> {
+  if (id == null) {
+    await clearPointer();
+    return;
+  }
+  if (!WORLD_UUID_RE.test(id)) {
+    throw new Error(`invalid world id: ${id}`);
+  }
+  rebindRuntimePaths(worldDir(id));
+  activeWorldId = id;
+  await writePointer(id);
+  await migratePlaySessionDir();
+}
+
+/** Ready gate for the currently bound playthrough (or needs_setup if none). */
 export async function syncWorldGate(): Promise<WorldGate> {
+  if (activeWorldId == null) {
+    return { needs_setup: true, world: null };
+  }
   await mkdir(kbRuntimeDir, { recursive: true });
   const inspect = await inspectWorld();
   if (inspect.kind !== "valid") return { needs_setup: true, world: null };
@@ -150,7 +303,35 @@ export async function syncWorldGate(): Promise<WorldGate> {
   return { needs_setup: false, world: inspect.world };
 }
 
+export async function getScreen(): Promise<Screen> {
+  if (activeWorldId == null) return "home";
+  if (!(await isPlayableWorld(activeWorldId))) {
+    await clearPointer();
+    return "home";
+  }
+  return "playing";
+}
+
+export async function loadActiveSave(): Promise<SaveMeta | null> {
+  if (activeWorldId == null) return null;
+  return loadSaveMetaAt(activeWorldId);
+}
+
+/** Rebind from disk pointer if valid+playable; else clear. Does not delete pointer on boot. */
+export async function restorePointerFromDisk(): Promise<Screen> {
+  const id = await readPointerId();
+  if (!id || !WORLD_UUID_RE.test(id) || !(await isPlayableWorld(id))) {
+    await clearPointer();
+    return "home";
+  }
+  rebindRuntimePaths(worldDir(id));
+  activeWorldId = id;
+  await migratePlaySessionDir();
+  return "playing";
+}
+
 export async function migratePlaySessionDir(): Promise<void> {
+  if (activeWorldId == null) return;
   await mkdir(kbRuntimeDir, { recursive: true });
   const oldExists = await dirExists(legacyPiSessionsDir);
   const newExists = await dirExists(playSessionsDir);
@@ -159,31 +340,31 @@ export async function migratePlaySessionDir(): Promise<void> {
   }
 }
 
-async function dirExists(path: string): Promise<boolean> {
-  try {
-    const s = await stat(path);
-    return s.isDirectory();
-  } catch {
-    return false;
-  }
+/**
+ * Process boot: ensure parent, delete current.json → always home.
+ * Does not seed; does not read kb/runtime/.
+ */
+export async function bootWorlds(): Promise<void> {
+  await mkdir(kbWorldsDir, { recursive: true });
+  await clearPointer();
 }
 
+/** @deprecated use bootWorlds; kept for call sites that ensured dirs. */
 export async function ensureRuntime(): Promise<void> {
-  await syncWorldGate();
-  await mkdir(npcMemoryDir, { recursive: true });
-  await migratePlaySessionDir();
-  if (!(await getNeedsSetup())) await loadCompactState();
+  await bootWorlds();
 }
 
 export async function getNeedsSetup(): Promise<boolean> {
-  return (await syncWorldGate()).needs_setup;
+  return (await getScreen()) !== "playing";
 }
 
 export async function loadValidWorld(): Promise<World | null> {
   return (await syncWorldGate()).world;
 }
 
+/** Clear playthrough files inside the active uuid only. No-op if no active. */
 export async function clearPlaythrough(): Promise<void> {
+  if (activeWorldId == null) return;
   await mkdir(kbRuntimeDir, { recursive: true });
   for (const f of PLAYTHROUGH_FILES) {
     await rm(join(kbRuntimeDir, f), { force: true });
@@ -197,14 +378,25 @@ export async function clearPlaythrough(): Promise<void> {
   await rm(npcMemoryDir, { recursive: true, force: true });
 }
 
-/** 新遊戲：只清空，不灌 seed、不開對局。 */
+/** Clear active uuid internals only (does not delete uuid dir or siblings). */
 export async function resetPlaythrough(): Promise<void> {
   await clearPlaythrough();
 }
 
-export async function atomicCommitPlaythrough(files: Map<string, string>): Promise<void> {
+/**
+ * Atomically commit files into kb/worlds/{targetId}/.
+ * Staging under parent `.vibe-setup-*`; does not touch sibling uuids.
+ */
+export async function atomicCommitPlaythrough(
+  files: Map<string, string>,
+  targetId: string,
+): Promise<void> {
   if (!files.has("world.json")) throw new Error("atomic commit requires world.json");
-  const staging = join(dirname(kbRuntimeDir), `.vibe-setup-${randomUUID()}`);
+  if (!WORLD_UUID_RE.test(targetId)) throw new Error(`invalid target id: ${targetId}`);
+
+  const staging = join(kbWorldsDir, `.vibe-setup-${randomUUID()}`);
+  const target = worldDir(targetId);
+  await mkdir(kbWorldsDir, { recursive: true });
   await mkdir(staging, { recursive: true });
   try {
     for (const [rel, content] of files) {
@@ -212,31 +404,32 @@ export async function atomicCommitPlaythrough(files: Map<string, string>): Promi
       await mkdir(dirname(dest), { recursive: true });
       await writeFile(dest, content);
     }
-    WorldSchema.parse(JSON.parse(await readFile(join(staging, "world.json"), "utf8")));
-    await mkdir(kbRuntimeDir, { recursive: true });
-    await clearPlaythrough();
-    const rest = [...files.keys()].filter((k) => k !== "world.json");
-    for (const rel of rest) {
-      const to = join(kbRuntimeDir, rel);
-      await mkdir(dirname(to), { recursive: true });
-      await rename(join(staging, rel), to);
+    const world = WorldSchema.parse(JSON.parse(await readFile(join(staging, "world.json"), "utf8")));
+    if (world.id !== targetId) throw new Error("world.json id must match target uuid");
+
+    if (await dirExists(target)) {
+      await rm(target, { recursive: true, force: true });
     }
-    await rename(join(staging, "world.json"), paths.world);
+    await rename(staging, target);
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
 }
 
-export async function commitDefaultWorld(): Promise<World> {
+export async function commitDefaultWorld(saveName: string): Promise<{ world: World; save: SaveMeta }> {
+  const id = randomUUID();
   const entities = await loadSeedEntities();
   const world: World = {
+    id,
     source: "default",
-    title: DEFAULT_WORLD_TITLE,
+    save_name: saveName,
     created_at: new Date().toISOString(),
   };
+  const save = saveMetaFromWorld(world);
   const files = new Map<string, string>([
     ["entities.json", JSON.stringify(entities, null, 2)],
     ["episodes.json", "[]"],
+    ["chat-tail.json", "[]"],
     ["relations.json", "[]"],
     ["gm_note.txt", INITIAL_GM_NOTE],
     ["scene.json", JSON.stringify(INITIAL_SCENE, null, 2)],
@@ -265,22 +458,31 @@ export async function commitDefaultWorld(): Promise<World> {
       JSON.stringify({ npc_id: "ash", body: DEFAULT_L2_CURRENT_BODY.ash, updated_turn: 0 }, null, 2),
     ],
   ]);
-  await atomicCommitPlaythrough(files);
-  return world;
+  await atomicCommitPlaythrough(files, id);
+  await setActiveWorld(id);
+  return { world, save };
 }
 
-export async function commitCustomWorld(primer: Primer, generated: GeneratedWorld): Promise<World> {
+export async function commitCustomWorld(
+  primer: Primer,
+  generated: GeneratedWorld,
+  saveName: string,
+): Promise<{ world: World; save: SaveMeta }> {
+  const id = randomUUID();
   const world: World = {
+    id,
     source: "custom",
-    title: generated.title,
+    save_name: saveName,
     created_at: new Date().toISOString(),
   };
+  const save = saveMetaFromWorld(world);
   const entities = generated.entities.map((e) =>
     e.kind === "npc" ? { ...e, memory_tier: 0 as const } : e,
   );
   const files = new Map<string, string>([
     ["entities.json", JSON.stringify(entities, null, 2)],
     ["episodes.json", "[]"],
+    ["chat-tail.json", "[]"],
     ["relations.json", JSON.stringify(generated.relations, null, 2)],
     ["gm_note.txt", generated.gm_note],
     ["scene.json", JSON.stringify(generated.scene, null, 2)],
@@ -292,16 +494,49 @@ export async function commitCustomWorld(primer: Primer, generated: GeneratedWorl
     ["npc-memory/pool.json", JSON.stringify(EMPTY_NPC_POOL, null, 2)],
     ["npc-memory/dirty-set.json", JSON.stringify(EMPTY_DIRTY_SET, null, 2)],
   ]);
-  await atomicCommitPlaythrough(files);
-  return world;
+  await atomicCommitPlaythrough(files, id);
+  await setActiveWorld(id);
+  return { world, save };
 }
 
 /** 測試用：顯式灌 default，禁止依賴 boot 偷灌。 */
-export async function setupDefaultForTest(): Promise<World> {
-  return commitDefaultWorld();
+export async function setupDefaultForTest(saveName = "test"): Promise<World> {
+  const { world } = await commitDefaultWorld(saveName);
+  return world;
+}
+
+/** Test helper: wipe parent uuid dirs + pointer; leave empty parent. */
+export async function wipeWorlds(): Promise<void> {
+  await mkdir(kbWorldsDir, { recursive: true });
+  const names = await readdir(kbWorldsDir);
+  for (const name of names) {
+    await rm(join(kbWorldsDir, name), { recursive: true, force: true });
+  }
+  await clearPointer();
+}
+
+/**
+ * Test helper: create empty uuid dir, write pointer, bind paths.
+ * Existing wipe(kbRuntimeDir) tests can call this after wipeWorlds.
+ */
+export async function activateTestWorld(id?: string): Promise<string> {
+  const wid = id ?? randomUUID();
+  if (!WORLD_UUID_RE.test(wid)) throw new Error("bad test world id");
+  await mkdir(worldDir(wid), { recursive: true });
+  await setActiveWorld(wid);
+  return wid;
+}
+
+export async function deleteActiveWorldDir(): Promise<void> {
+  if (activeWorldId == null) return;
+  const id = activeWorldId;
+  const dir = worldDir(id);
+  await clearPointer();
+  await rm(dir, { recursive: true, force: true });
 }
 
 export async function loadEpisodes(): Promise<Episode[]> {
+  if (activeWorldId == null) return [];
   const raw = await readJson<unknown[]>(paths.episodes, []);
   return raw.map((e) => EpisodeSchema.parse(e));
 }
@@ -310,7 +545,27 @@ export async function saveEpisodes(episodes: Episode[]): Promise<void> {
   await writeFile(paths.episodes, JSON.stringify(episodes, null, 2));
 }
 
+/** 近期對局氣泡；缺檔／舊存檔回空陣列（UI 可退回 episode 摘要）。 */
+export async function loadChatTail(): Promise<ChatTailEntry[]> {
+  if (activeWorldId == null) return [];
+  const raw = await readJson<unknown[]>(paths.chatTail, []);
+  if (!Array.isArray(raw)) return [];
+  const out: ChatTailEntry[] = [];
+  for (const row of raw) {
+    const parsed = ChatTailEntrySchema.safeParse(row);
+    if (parsed.success) out.push(parsed.data);
+  }
+  return out.slice(-CHAT_TAIL_KEEP);
+}
+
+export async function appendChatTail(entry: ChatTailEntry): Promise<void> {
+  if (activeWorldId == null) return;
+  const next = [...(await loadChatTail()), ChatTailEntrySchema.parse(entry)].slice(-CHAT_TAIL_KEEP);
+  await writeFile(paths.chatTail, JSON.stringify(next, null, 2));
+}
+
 export async function loadEntities(): Promise<Entity[]> {
+  if (activeWorldId == null) return [];
   const raw = await readJson<unknown[]>(paths.entities, []);
   return raw.map((e) => EntitySchema.parse(e));
 }
@@ -370,6 +625,7 @@ export async function saveEntities(entities: Entity[]): Promise<void> {
 }
 
 export async function loadRelations(): Promise<Relation[]> {
+  if (activeWorldId == null) return [];
   const raw = await readJson<unknown[]>(paths.relations, []);
   return raw.map((e) => RelationSchema.parse(e));
 }
@@ -379,6 +635,7 @@ export async function saveRelations(relations: Relation[]): Promise<void> {
 }
 
 export async function loadGmNote(): Promise<string> {
+  if (activeWorldId == null) return "";
   try {
     return (await readFile(paths.gmNote, "utf8")).trim();
   } catch {
@@ -392,6 +649,7 @@ export async function saveGmNote(note: string): Promise<void> {
 }
 
 export async function loadScene(): Promise<SceneState | null> {
+  if (activeWorldId == null) return null;
   try {
     const raw = JSON.parse(await readFile(paths.scene, "utf8"));
     const parsed = SceneStateSchema.safeParse(raw);

@@ -6,7 +6,7 @@ import { GmOutputSchema, parseGmOutput } from "./schema.ts";
 import { mockGm } from "./gm-mock.ts";
 import { writeFromGm } from "./writer.ts";
 import { HttpError } from "./errors.ts";
-import { kbRuntimeDir, loadEntities, loadEpisodes, loadRelations, resetPlaythrough, setupDefaultForTest } from "./kb.ts";
+import { activateTestWorld, kbRuntimeDir, loadEntities, loadEpisodes, loadRelations, resetPlaythrough, setupDefaultForTest, wipeWorlds } from "./kb.ts";
 import { runTurn } from "./turn.ts";
 
 test("parseAssistantJson extracts object from fence", () => {
@@ -152,7 +152,7 @@ test("parseGmOutput fills npc_lines from spoken events when model left them empt
 });
 
 test("mock GM + writer persist episode and relation", async () => {
-  await mkdir(kbRuntimeDir, { recursive: true });
+  await wipeWorlds();
   await setupDefaultForTest();
   const gm = GmOutputSchema.parse(
     mockGm({
@@ -173,11 +173,11 @@ test("mock GM + writer persist episode and relation", async () => {
   const relations = await loadRelations();
   expect(episodes.length).toBe(1);
   expect(relations.some((r) => r.b === "bartender" || r.a === "bartender")).toBe(true);
-  await rm(kbRuntimeDir, { recursive: true, force: true });
 });
 
 test("runTurn before setup is 409 needs_setup", async () => {
-  await mkdir(kbRuntimeDir, { recursive: true });
+  await wipeWorlds();
+  await activateTestWorld();
   await resetPlaythrough();
   try {
     await runTurn({ player_text: "你好" });
@@ -187,11 +187,10 @@ test("runTurn before setup is 409 needs_setup", async () => {
     expect((err as HttpError).status).toBe(409);
     expect((err as HttpError).body.needs_setup).toBe(true);
   }
-  await rm(kbRuntimeDir, { recursive: true, force: true });
 });
 
 test("Writer persists a newly speaking NPC into runtime entities", async () => {
-  await mkdir(kbRuntimeDir, { recursive: true });
+  await wipeWorlds();
   await setupDefaultForTest();
   const gm = parseGmOutput({
     narration: "燈火一顫。",
@@ -213,5 +212,4 @@ test("Writer persists a newly speaking NPC into runtime entities", async () => {
   await writeFromGm(gm, "t0009", new Date().toISOString(), "tavern");
   const entities = await loadEntities();
   expect(entities.some((e) => e.id === "lantern_keeper" && e.name === "守燈人")).toBe(true);
-  await rm(kbRuntimeDir, { recursive: true, force: true });
 });

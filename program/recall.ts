@@ -2,7 +2,12 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { npcMemoryDir, sessionArchiveDir } from "./kb.ts";
 import type { Entity, MemorySlice, SceneState } from "./schema.ts";
-import { NpcArchiveEntrySchema, SessionArchiveIndexSchema, SessionSummarySchema } from "./schema.ts";
+import {
+  NpcArchiveEntrySchema,
+  NpcArchiveIndexSchema,
+  SessionArchiveIndexSchema,
+  SessionSummarySchema,
+} from "./schema.ts";
 
 const PAST_HINTS = [
   "當時",
@@ -21,8 +26,8 @@ export type RecallSnippet = {
   kind: "session" | "npc";
   id: string;
   npcId?: string;
+  locator: string;
   summary: string;
-  excerpts: string[];
   score: number;
 };
 
@@ -49,14 +54,39 @@ function overlapScore(playerText: string, title: string, summary: string): numbe
   return n;
 }
 
+function firstIndex(hay: string, needle: string): number {
+  if (!needle) return -1;
+  return hay.toLowerCase().indexOf(needle.toLowerCase());
+}
+
 type IndexHit = {
   kind: "session" | "npc";
   id: string;
   npcId?: string;
   title: string;
   summary: string;
+  turnFrom: string;
+  turnTo: string;
+  sessionArchiveId?: string;
   score: number;
 };
+
+function namedL2WithArchive(playerText: string, entities: Entity[], indexHits: IndexHit[]): string[] {
+  const l2 = entities.filter((e) => e.kind === "npc" && (e.memory_tier ?? 0) === 2);
+  const named = l2
+    .map((e) => {
+      const nameIdx = firstIndex(playerText, e.name);
+      const idIdx = firstIndex(playerText, e.id);
+      const idxs = [nameIdx, idIdx].filter((i) => i >= 0);
+      if (idxs.length === 0) return null;
+      const hasArchive = indexHits.some((h) => h.kind === "npc" && h.npcId === e.id);
+      if (!hasArchive) return null;
+      return { id: e.id, at: Math.min(...idxs) };
+    })
+    .filter((x): x is { id: string; at: number } => !!x)
+    .sort((a, b) => a.at - b.at);
+  return named.map((n) => n.id);
+}
 
 export async function gatherRecallSnippets(opts: {
   playerText: string;
@@ -69,35 +99,45 @@ export async function gatherRecallSnippets(opts: {
   const names = opts.entities.map((e) => ({ id: e.id, name: e.name }));
 
   const indexHits = await loadIndexHits(text);
-  const entityInArchive = names.some((e) => {
+
+  const gateI = playerLooksLikePast(text);
+  const gateIi = names.some((e) => {
     const inPlayer = hayHas(text, e.name) || hayHas(text, e.id);
     const inEpisodes = hayHas(episodeBlob, e.name) || hayHas(episodeBlob, e.id);
     if (!inPlayer || inEpisodes) return false;
-    return indexHits.some((h) => hayHas(h.title, e.name) || hayHas(h.title, e.id) || hayHas(h.summary, e.name) || hayHas(h.summary, e.id));
+    return indexHits.some(
+      (h) => hayHas(h.title, e.name) || hayHas(h.title, e.id) || hayHas(h.summary, e.name) || hayHas(h.summary, e.id),
+    );
   });
-  if (!playerLooksLikePast(text) && !entityInArchive) return [];
+  const namedL2 = namedL2WithArchive(text, opts.entities, indexHits);
+  const gateIii = namedL2.length > 0;
 
-  const presentL2 = opts.scene.present.filter((id) => {
-    const e = opts.entities.find((x) => x.id === id);
-    return e?.kind === "npc" && (e.memory_tier ?? 0) === 2 && (hayHas(text, e.name) || hayHas(text, id));
-  });
+  if (!gateI && !gateIi && !gateIii) return [];
 
   const ranked = [...indexHits].sort((a, b) => b.score - a.score);
+  const sessionHits = ranked.filter((h) => h.kind === "session");
+  const hasSessionCandidate = sessionHits.length > 0;
+
   const picked: IndexHit[] = [];
-  if (presentL2[0]) {
-    const npcId = presentL2[0];
-    const sess = ranked.find((h) => h.kind === "session");
+
+  if (namedL2.length > 0) {
+    const npcId = namedL2[0]!;
     const npc = ranked.find((h) => h.kind === "npc" && h.npcId === npcId);
-    if (sess) picked.push(sess);
-    if (npc && picked.length < 2) picked.push(npc);
+    if (npc) picked.push(npc);
+    if (hasSessionCandidate) {
+      const sess = sessionHits[0];
+      if (sess && picked.length < 2) picked.push(sess);
+    } else {
+      const otherNpc = ranked.find((h) => h.kind === "npc" && h.npcId !== npcId);
+      if (otherNpc && picked.length < 2) picked.push(otherNpc);
+    }
+  } else {
+    picked.push(...sessionHits.slice(0, 2));
   }
-  if (picked.length === 0) {
-    picked.push(...ranked.filter((h) => h.kind === "session").slice(0, 2));
-  }
-  const open = picked.slice(0, 2);
+
   const out: RecallSnippet[] = [];
-  for (const p of open) {
-    out.push(await openDetails(p, text));
+  for (const p of picked.slice(0, 2)) {
+    out.push(await openDetails(p));
   }
   return out;
 }
@@ -123,6 +163,8 @@ async function loadIndexHits(playerText: string): Promise<IndexHit[]> {
         id: e.archive_id,
         title: e.title,
         summary,
+        turnFrom: e.turn_from,
+        turnTo: e.turn_to,
         score: overlapScore(playerText, e.title, summary),
       });
     }
@@ -138,17 +180,20 @@ async function loadIndexHits(playerText: string): Promise<IndexHit[]> {
   }
   for (const npcId of ids) {
     try {
-      const raw = JSON.parse(await readFile(join(npcMemoryDir, "l2", npcId, "archive", "index.json"), "utf8")) as {
-        entries: { npc_archive_id: string; title: string }[];
-      };
-      for (const ent of raw.entries ?? []) {
+      const idx = NpcArchiveIndexSchema.parse(
+        JSON.parse(await readFile(join(npcMemoryDir, "l2", npcId, "archive", "index.json"), "utf8")),
+      );
+      for (const ent of idx.entries) {
         out.push({
           kind: "npc",
           id: ent.npc_archive_id,
           npcId,
           title: ent.title,
-          summary: ent.title,
-          score: overlapScore(playerText, ent.title, ent.title),
+          summary: ent.summary,
+          turnFrom: ent.turn_from,
+          turnTo: ent.turn_to,
+          sessionArchiveId: ent.session_archive_id,
+          score: overlapScore(playerText, ent.title, ent.summary),
         });
       }
     } catch {
@@ -158,65 +203,66 @@ async function loadIndexHits(playerText: string): Promise<IndexHit[]> {
   return out;
 }
 
-async function openDetails(hit: IndexHit, playerText: string): Promise<RecallSnippet> {
+async function openDetails(hit: IndexHit): Promise<RecallSnippet> {
   if (hit.kind === "session") {
-    let excerpts: string[] = [];
+    let summary = hit.summary;
     try {
-      const jsonl = await readFile(join(sessionArchiveDir, hit.id, "session.jsonl"), "utf8");
-      excerpts = excerptJsonl(jsonl, playerText).map((t) => t.slice(0, 120));
+      const sum = SessionSummarySchema.parse(
+        JSON.parse(await readFile(join(sessionArchiveDir, hit.id, "summary.json"), "utf8")),
+      );
+      summary = sum.body;
     } catch {
-      excerpts = [];
+      /* keep */
     }
-    return { kind: "session", id: hit.id, summary: hit.summary, excerpts, score: hit.score };
+    return {
+      kind: "session",
+      id: hit.id,
+      locator: `${hit.turnFrom}–${hit.turnTo}`,
+      summary,
+      score: hit.score,
+    };
   }
-  let excerpts: string[] = [];
+
   let summary = hit.summary;
+  let turnFrom = hit.turnFrom;
+  let turnTo = hit.turnTo;
+  let sessionArchiveId = hit.sessionArchiveId;
+  let npcId = hit.npcId;
   if (hit.npcId) {
     try {
       const parsed = NpcArchiveEntrySchema.parse(
         JSON.parse(await readFile(join(npcMemoryDir, "l2", hit.npcId, "archive", `${hit.id}.json`), "utf8")),
       );
       summary = parsed.summary;
-      excerpts = parsed.salient_quotes.slice(0, 3).map((q) => q.text.slice(0, 120));
+      turnFrom = parsed.turn_from;
+      turnTo = parsed.turn_to;
+      sessionArchiveId = parsed.session_archive_id;
+      npcId = parsed.npc_id;
     } catch {
-      /* */
+      /* index fields */
     }
   }
-  return { kind: "npc", id: hit.id, npcId: hit.npcId, summary, excerpts, score: hit.score };
-}
-
-function excerptJsonl(jsonl: string, playerText: string): string[] {
-  const hits: string[] = [];
-  for (const line of jsonl.split("\n")) {
-    if (!line.trim()) continue;
-    const tokens = playerText.split(/[\s，。]+/).filter((t) => t.length >= 2);
-    if (!tokens.some((t) => hayHas(line, t)) && !PAST_HINTS.some((h) => hayHas(line, h))) continue;
-    let text = line;
-    try {
-      const rec = JSON.parse(line) as Record<string, unknown>;
-      const msg = (rec.message && typeof rec.message === "object" ? rec.message : rec) as Record<string, unknown>;
-      if (typeof msg.content === "string") text = msg.content;
-      else if (Array.isArray(msg.content)) {
-        text = msg.content
-          .map((c) => (c && typeof c === "object" && "text" in c ? String((c as { text?: string }).text ?? "") : ""))
-          .join("");
-      }
-    } catch {
-      /* keep */
-    }
-    const clip = text.trim().slice(0, 120);
-    if (clip) hits.push(clip);
-    if (hits.length >= 3) break;
-  }
-  return hits;
+  const locator = sessionArchiveId
+    ? `${npcId} · ${turnFrom}–${turnTo} · ${sessionArchiveId}`
+    : `${npcId} · ${turnFrom}–${turnTo}`;
+  return {
+    kind: "npc",
+    id: hit.id,
+    npcId,
+    locator,
+    summary,
+    score: hit.score,
+  };
 }
 
 export function formatRecallForGm(snippets: RecallSnippet[]): string {
   if (snippets.length === 0) return "";
   return snippets
     .map((s) => {
-      const extra = s.excerpts.map((x) => `- ${x}`).join("\n");
-      return `[archive ${s.kind} ${s.id}]\n${s.summary}\n${extra}`;
+      if (s.kind === "npc") {
+        return `[archive npc ${s.id}] ${s.locator}\n${s.summary}`;
+      }
+      return `[archive session ${s.id}] ${s.locator}\n${s.summary}`;
     })
     .join("\n\n");
 }

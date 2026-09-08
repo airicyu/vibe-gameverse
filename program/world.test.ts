@@ -7,6 +7,7 @@ import { HttpError } from "./errors.ts";
 import { buildPlaySystemPrompt } from "./gm-pi.ts";
 import { mockGm } from "./gm-mock.ts";
 import {
+  activateTestWorld,
   commitCustomWorld,
   getNeedsSetup,
   getSeedIds,
@@ -18,9 +19,9 @@ import {
   saveEntities,
   setupDefaultForTest,
   syncWorldGate,
+  wipeWorlds,
 } from "./kb.ts";
 import {
-  DEFAULT_WORLD_TITLE,
   EntitySchema,
   parseGeneratedWorld,
   parseGmOutput,
@@ -44,8 +45,8 @@ const LONG_PRIMER: Primer = {
 };
 
 async function wipe(): Promise<void> {
-  await rm(kbRuntimeDir, { recursive: true, force: true });
-  await mkdir(kbRuntimeDir, { recursive: true });
+  await wipeWorlds();
+  await activateTestWorld();
 }
 
 test("empty runtime boot does not seed and needs_setup", async () => {
@@ -67,7 +68,7 @@ test("setupDefaultForTest ids equal seed ids", async () => {
   const gate = await syncWorldGate();
   expect(gate.needs_setup).toBe(false);
   expect(gate.world?.source).toBe("default");
-  expect(gate.world?.title).toBe(DEFAULT_WORLD_TITLE);
+  expect(gate.world?.save_name).toBe("test");
 });
 
 test("entities without world.json do not backfill default", async () => {
@@ -93,10 +94,10 @@ test("invalid world.json is needs_setup and not rewritten", async () => {
 test("setup default replaces leftover custom entities", async () => {
   await wipe();
   const primer = PrimerSchema.parse(LONG_PRIMER);
-  await commitCustomWorld(primer, mockGeneratedWorld(primer));
+  await commitCustomWorld(primer, mockGeneratedWorld(primer), "t");
   expect((await loadEntities()).some((e) => e.id === "keeper")).toBe(true);
   await resetPlaythrough();
-  const world = await setupDefault();
+  const { world } = await setupDefault({ save_name: "t" });
   expect(world.source).toBe("default");
   const ids = new Set((await loadEntities()).map((e) => e.id));
   expect(ids.has("keeper")).toBe(false);
@@ -105,9 +106,9 @@ test("setup default replaces leftover custom entities", async () => {
 
 test("ready setup default returns 409", async () => {
   await wipe();
-  await setupDefault();
+  await setupDefault({ save_name: "t" });
   try {
-    await setupDefault();
+    await setupDefault({ save_name: "t" });
     throw new Error("expected HttpError");
   } catch (err) {
     expect(err).toBeInstanceOf(HttpError);
@@ -117,9 +118,9 @@ test("ready setup default returns 409", async () => {
 
 test("custom mock commits harbor and not primer text", async () => {
   await wipe();
-  const world = await setupCustom(LONG_PRIMER);
+  const { world } = await setupCustom({ ...LONG_PRIMER, save_name: "t" });
   expect(world.source).toBe("custom");
-  expect(world.title).toBe("霧港");
+  expect(world.save_name).toBe("t");
   const entities = await loadEntities();
   expect(entities.some((e) => e.id === "player")).toBe(true);
   expect(entities.some((e) => e.kind === "npc")).toBe(true);
@@ -189,7 +190,7 @@ test("default play prompt uses runtime persona not only tavern names", async () 
   expect(existsSync(join(PROMPTS_DIR, "npc-ash.md"))).toBe(false);
 
   await resetPlaythrough();
-  await setupCustom(LONG_PRIMER);
+  await setupCustom({ ...LONG_PRIMER, save_name: "t" });
   const custom = await buildPlaySystemPrompt();
   expect(custom.includes("瑪拉")).toBe(false);
   expect(custom.includes("harbor_inn") || custom.includes("霧港")).toBe(true);
@@ -197,7 +198,7 @@ test("default play prompt uses runtime persona not only tavern names", async () 
 
 test("custom mock turn is not tavern cast", async () => {
   await wipe();
-  await setupCustom(LONG_PRIMER);
+  await setupCustom({ ...LONG_PRIMER, save_name: "t" });
   const result = await runTurn({ player_text: "我向櫃檯點一碗湯" });
   const text = `${result.gm.narration}${result.gm.npc_lines.map((l) => l.text).join("")}${result.gm.gm_note}`;
   expect(text.includes("瑪拉")).toBe(false);
@@ -234,6 +235,7 @@ test("primer too long is 400", async () => {
   await wipe();
   try {
     await setupCustom({
+      save_name: "t",
       worldview: "字".repeat(4001),
       starting_point: "起始地點必須夠長才算數。",
     });
@@ -298,7 +300,7 @@ test("runtime persona override is used; seed persona is not re-read", async () =
 test("custom commit writes gm_canon.md not runtime prompts/gm.md", async () => {
   await wipe();
   const primer = PrimerSchema.parse(LONG_PRIMER);
-  await commitCustomWorld(primer, mockGeneratedWorld(primer));
+  await commitCustomWorld(primer, mockGeneratedWorld(primer), "t");
   expect(existsSync(join(kbRuntimeDir, "gm_canon.md"))).toBe(true);
   expect(existsSync(join(kbRuntimeDir, "prompts", "gm.md"))).toBe(false);
   const gate = await syncWorldGate();
@@ -329,7 +331,7 @@ test("custom world without gm_canon.md is needs_setup even if old prompts/gm.md 
 test("clearPlaythrough removes gm_canon.md and leftover prompts dir", async () => {
   await wipe();
   const primer = PrimerSchema.parse(LONG_PRIMER);
-  await commitCustomWorld(primer, mockGeneratedWorld(primer));
+  await commitCustomWorld(primer, mockGeneratedWorld(primer), "t");
   await mkdir(join(kbRuntimeDir, "prompts"), { recursive: true });
   await writeFile(join(kbRuntimeDir, "prompts", "gm.md"), "stale");
   await resetPlaythrough();
@@ -343,17 +345,17 @@ test("custom missing canon allows setup (not already ready)", async () => {
     join(kbRuntimeDir, "world.json"),
     JSON.stringify({ source: "custom", title: "霧港", created_at: "2026-01-01T00:00:00.000Z" }),
   );
-  const world = await setupDefault();
+  const { world } = await setupDefault({ save_name: "t" });
   expect(world.source).toBe("default");
 });
 
 test("setup and turn do not write repo prompts", async () => {
   const before = new Set(await readdir(PROMPTS_DIR));
   await wipe();
-  await setupDefault();
+  await setupDefault({ save_name: "t" });
   await runTurn({ player_text: "你好" });
   await resetPlaythrough();
-  await setupCustom(LONG_PRIMER);
+  await setupCustom({ ...LONG_PRIMER, save_name: "t" });
   await runTurn({ player_text: "我向櫃檯點一碗湯" });
   const after = new Set(await readdir(PROMPTS_DIR));
   expect([...after].sort()).toEqual([...before].sort());

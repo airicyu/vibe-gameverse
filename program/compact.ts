@@ -39,8 +39,8 @@ import {
 export type CompactTestHooks = {
   summary?: (input: unknown) => { title: string; body: string } | Promise<{ title: string; body: string }>;
   npcArchive?: (npcId: string) =>
-    | { title: string; summary: string; salient_quotes: { turn_id: string; speaker: string; text: string }[]; distilled_body: string }
-    | Promise<{ title: string; summary: string; salient_quotes: { turn_id: string; speaker: string; text: string }[]; distilled_body: string }>;
+    | { title: string; summary: string; distilled_body: string }
+    | Promise<{ title: string; summary: string; distilled_body: string }>;
   failAfterScratch?: () => void;
   failAfterApply?: () => void;
 };
@@ -234,7 +234,6 @@ async function modelNpcArchive(npcId: string, payload: unknown): Promise<ReturnT
     return parseNpcArchiveModel({
       title: `${npcId} 本段`,
       summary: "本段知情已收進主觀檔。",
-      salient_quotes: [],
       distilled_body: "剛封存過一幕。",
     });
   }
@@ -263,7 +262,7 @@ async function loadNpcArchiveIndex(npcId: string) {
   try {
     return NpcArchiveIndexSchema.parse(JSON.parse(await readFile(path, "utf8")));
   } catch {
-    return { npc_id: npcId, entries: [] as { npc_archive_id: string; session_archive_id?: string; turn_from: string; turn_to: string; title: string; body_chars: number; quote_count: number }[] };
+    return { npc_id: npcId, entries: [] as { npc_archive_id: string; session_archive_id?: string; turn_from: string; turn_to: string; title: string; summary: string; body_chars: number }[] };
   }
 }
 
@@ -360,7 +359,6 @@ async function draftNpcWrite(id: string, turnTo: string): Promise<NpcWrite> {
     turn_to: turnTo,
     title: modeled.title,
     summary: modeled.summary,
-    salient_quotes: modeled.salient_quotes,
   });
   const index = NpcArchiveIndexSchema.parse({
     npc_id: id,
@@ -371,8 +369,8 @@ async function draftNpcWrite(id: string, turnTo: string): Promise<NpcWrite> {
         turn_from: turnFrom,
         turn_to: turnTo,
         title: modeled.title,
+        summary: modeled.summary,
         body_chars: modeled.summary.length,
-        quote_count: modeled.salient_quotes.length,
       },
     ],
   });

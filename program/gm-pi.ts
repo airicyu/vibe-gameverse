@@ -11,12 +11,11 @@ import {
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { HttpError } from "./errors.ts";
-import { getNeedsSetup, kbRuntimeDir, loadCompactState, loadCustomGmCanon, loadEntities, migratePlaySessionDir, playSessionsDir, syncWorldGate } from "./kb.ts";
+import { getNeedsSetup, getScreen, kbRuntimeDir, loadCompactState, loadCustomGmCanon, loadEntities, migratePlaySessionDir, playSessionsDir, syncWorldGate } from "./kb.ts";
 import { parseGmOutput, type Entity, type GmContext, type GmOutput } from "./schema.ts";
 import { debugEnabled, debugLog, turnLog } from "./log.ts";
 
 const root = join(import.meta.dir, "..");
-const piCwd = kbRuntimeDir;
 
 let session: AgentSession | undefined;
 let boot: Promise<AgentSession> | undefined;
@@ -178,7 +177,7 @@ async function openOrContinuePlaySession(): Promise<AgentSession> {
   const systemPrompt = await buildPlaySystemPrompt();
   const fresh = !(await hasPlayJsonl());
   return openPiSession({
-    cwd: piCwd,
+    cwd: kbRuntimeDir,
     sessionDir: playSessionsDir,
     systemPrompt,
     fresh,
@@ -186,6 +185,9 @@ async function openOrContinuePlaySession(): Promise<AgentSession> {
 }
 
 async function getSession(): Promise<AgentSession> {
+  if ((await getScreen()) !== "playing") {
+    throw new HttpError(409, { error: "not_playing", needs_setup: true });
+  }
   if (await getNeedsSetup()) {
     throw new HttpError(409, { needs_setup: true, error: "needs_setup" });
   }
@@ -208,11 +210,19 @@ export async function createPlaySession(): Promise<void> {
   await disposePlaySession();
   const systemPrompt = await buildPlaySystemPrompt();
   session = await openPiSession({
-    cwd: piCwd,
+    cwd: kbRuntimeDir,
     sessionDir: playSessionsDir,
     systemPrompt,
     fresh: true,
   });
+  boot = Promise.resolve(session);
+}
+
+/** After load: continue jsonl if present, else fresh session. */
+export async function openLoadedPlaySession(): Promise<void> {
+  if (process.env.GM_MODE === "mock") return;
+  await disposePlaySession();
+  session = await openOrContinuePlaySession();
   boot = Promise.resolve(session);
 }
 
