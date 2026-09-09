@@ -16,7 +16,7 @@ import {
   syncWorldGate,
 } from "./kb.ts";
 import { turnLog } from "./log.ts";
-import { buildGmContext, loadL2MapForPresent } from "./npc-memory.ts";
+import { buildGmContext, loadL2MapForPresent, loadL2PsycheMapForPresent } from "./npc-memory.ts";
 import { formatRecallForGm, gatherRecallSnippets } from "./recall.ts";
 import { parseGmOutput, PlayerInputSchema, type GmOutput, type PlayerInput } from "./schema.ts";
 import { writeFromGm } from "./writer.ts";
@@ -59,6 +59,7 @@ export async function runTurn(raw: unknown): Promise<TurnResult> {
   const gm_note = await loadGmNote();
   const memory_slice = await buildMemorySlice();
   const entities = await loadEntities();
+  const l2ById = await loadL2MapForPresent(scene, entities);
   const ctx = buildGmContext({
     player_text: input.player_text,
     gm_note,
@@ -68,7 +69,8 @@ export async function runTurn(raw: unknown): Promise<TurnResult> {
     timestamp,
     entities,
     pool: await loadNpcPool(),
-    l2ById: await loadL2MapForPresent(scene, entities),
+    l2ById,
+    l2PsycheById: await loadL2PsycheMapForPresent(scene, entities),
   });
   const recall = await gatherRecallSnippets({
     playerText: input.player_text,

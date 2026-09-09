@@ -1,6 +1,6 @@
 # vibe-gameverse — Agent Context
 
-本檔給 coding agent 開工用。規格起點：`docs/handover.md`、`docs/brainstorm.md`。不要重新大開腦暴，除非 Eric 明確要求改定案。現行版本：**0.9.0**（`VERSION.md`、`changelog.md`）。契約：[0.9.0 回合處理中 UI](docs/roadmap/0.9.0/INDEX.md)。上游：[0.8.0 角色記憶](docs/roadmap/0.8.0/INDEX.md)；[0.7.0 多世界存檔](docs/roadmap/0.7.0/INDEX.md)。未排程構想：`docs/roadmap/backlog/`。
+本檔給 coding agent 開工用。規格起點：`docs/handover.md`、`docs/brainstorm.md`。不要重新大開腦暴，除非 Eric 明確要求改定案。現行版本：**0.10.0**（`VERSION.md`、`changelog.md`）。契約：[0.10.0 L2 NPC 心理深度](docs/roadmap/0.10.0/INDEX.md)。上游：[0.9.0 回合處理中 UI](docs/roadmap/0.9.0/INDEX.md)；[0.8.0 角色記憶](docs/roadmap/0.8.0/INDEX.md)；[0.7.0 多世界存檔](docs/roadmap/0.7.0/INDEX.md)。未排程構想：`docs/roadmap/backlog/`。
 
 ## 語言（強制）
 
@@ -43,9 +43,9 @@ Engram **只參考架構**，不要 clone、不要混個人 Engram。
 | Writer | 先吃 `events[]` 寫世界 KB，再機械更新 `npc-memory/`（池／L2 current／dirty set） | `program/writer.ts` + `program/npc-memory.ts`（程式，不另開模型） |
 | Presenter | `narration` + `npc_lines` | `program/public/` |
 
-GM 每回合吃：`player_text`、`gm_note`、`scene`、`memory_slice`（近 8 則 episode 摘要 + entities + relations）、**在場** `npc_memories`（L2 讀 `npc-memory/l2/{id}/current.json`，L0／L1 讀 `pool.json` 該節；禁止整份 pool），可選回想摘錄（啟發式才掃已存在的 archive：**summary + locator**，零 quotes／零 jsonl 剪句；閘門含點名 L2＋有 archive），加上 **pi session 活 jsonl**（該 uuid 的 `play-sessions/`；成功 session compact 後換成新檔）。Writer **不讀**聊天逐字稿。`private_notes` 不併進 `npc_memories`。`npc_memories` 與 archive 摘錄 **不**進對玩家 HTTP。對局 GM JSON **必填** `scene`。
+GM 每回合吃：`player_text`、`gm_note`、`scene`、`memory_slice`（近 8 則 episode 摘要 + entities + relations）、**在場** `npc_memories`（L2 讀 `npc-memory/l2/{id}/current.json` **body** ＋同目錄 **`psyche.json` 六欄**；L0／L1 讀 `pool.json` 該節；禁止整份 pool），可選回想摘錄（啟發式才掃已存在的 archive：**summary + locator**，零 quotes／零 jsonl 剪句；閘門含點名 L2＋有 archive），加上 **pi session 活 jsonl**（該 uuid 的 `play-sessions/`；成功 session compact 後換成新檔）。Writer **不讀**聊天逐字稿。`private_notes` 不併進 `npc_memories`。`npc_memories` 與 archive 摘錄 **不**進對玩家 HTTP。對局 GM JSON **必填** `scene`。
 
-Compact **兩個 scope**（同一 `POST /api/turn`、非背景）：L2 離場且有資格 → 只封該 NPC（`Promise.allSettled` 平行）；session 換檔由滿 N（倉庫預設 **8**）、`scene_id` 換幕或強制線觸發，**不**再問 judge、**不**因 `present` 進出整場封。離場 NPC 失敗不拖垮 session；session 失敗不回滾已提交的離場 NPC。`near_cap` 640 不當 NPC trigger。Mock 給人玩不自動跑 compact 短呼叫。
+Compact **兩個 scope**（同一 `POST /api/turn`、非背景）：L2 離場且有資格 → 只封該 NPC（`Promise.allSettled` 平行），成功後 **離場路徑** 另一次 psyche 短呼叫；session 換檔由滿 N（倉庫預設 **8**）、`scene_id` 換幕或強制線觸發，**不**再問 judge、**不**因 `present` 進出整場封。Session near_cap distill **不**改 `psyche.json`。離場 NPC 失敗不拖垮 session；session 失敗不回滾已提交的離場 NPC；psyche distill 失敗 **不**回滾 archive。`near_cap` 640 仍只看 `body` 長度。Mock 給人玩不自動跑 compact 短呼叫（psyche 同 skip）。
 
 合約與 coerce：`program/schema.ts`。`narration` 是舞台指示，**台詞只在 `npc_lines`**；空 narration 不要填「……」。新開口的角色用新 `npc_id`。缺 `npc_id` → `unknown_npc`；缺 `gm_note` →「本場進行中。」。禁止 coerce 預設酒館。
 
@@ -76,7 +76,7 @@ docs/             # handover、brainstorm、roadmap
 
 - 每存檔：`kb/worlds/{uuid}/`＝昔日一份 runtime（`world.json` 含 id／save_name、entities、play-sessions、npc-memory 等）。
 - **開場卡司**只在 `kb/seed/`（模板）與該 uuid。遊玩中冒出的角色 → Writer 寫該 uuid `entities.json`（預設 `memory_tier` 0），**不要**預寫 `prompts/npc-*.md`。Custom NPC 只進該 uuid，setup **不**建 `l2/`。
-- `npc-memory/`：`pool.json`（L0／L1）、`dirty-set.json`、`l2/{npc_id}/current.json`；成功 compact 才寫 `l2/{id}/archive/`（summary＋locator；**無** `salient_quotes`）。L2 current **不**截 800。刪世界＝recursive 刪該 uuid；回主頁不清目錄。
+- `npc-memory/`：`pool.json`（L0／L1）、`dirty-set.json`、`l2/{npc_id}/current.json`、`l2/{npc_id}/psyche.json`（僅 L2）；成功 compact 才寫 `l2/{id}/archive/`（summary＋locator；**無** `salient_quotes`）。L2 current **不**截 800。刪世界＝recursive 刪該 uuid；回主頁不清目錄。
 - 測試必須用 `VIBE_GAMEVERSE_KB_WORLDS`（parent；見 `program/test-runtime-env.ts`）。舊鍵 `VIBE_GAMEVERSE_KB_RUNTIME` **忽略**。**禁止** `rm` 專案 live `kb/runtime` 或 `kb/worlds`。
 - 舊 `kb/runtime/`：**不讀、不搬、不自動刪**。
 - Legacy `pi-sessions/`→`play-sessions/`：僅在該 uuid **首次**成 pointer 時改名一次。

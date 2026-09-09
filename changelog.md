@@ -4,6 +4,23 @@
 
 ---
 
+## 0.10.0 — L2 NPC 心理深度（2026-09-10）
+
+`memory_tier === 2` 另存 `npc-memory/l2/{id}/psyche.json`（性格、人生／中期／短期目標、喜好／厭惡）。GM `npc_memories` 附 `psyche`；Default 瑪拉／灰有預製。升 2 建空檔。僅 **離場** NPC compact 後 psyche 短呼叫更新；session near_cap distill **不**改 psyche。不 hop；不進 HTTP。見 `docs/roadmap/0.10.0/`。
+
+### Added
+
+- `l2/{id}/psyche.json` 六欄 schema 與 load/save
+- Default seed 瑪拉／灰預製 psyche
+- 離場 compact 後 `compact-npc-psyche` 短呼叫
+- `gm-contract` psyche／persona／body 優先序
+
+### Non-goals
+
+- L0／L1 心理檔、每回合 GM 改 psyche、玩家可見心理 UI、`private_notes` merge、改 compact 觸發表
+
+---
+
 ## 0.9.0 — 回合處理中 UI（2026-09-09）
 
 對局送出一句、`POST /api/turn` 尚未回來時，輸入列可見「處理中」＋簡易 spinner；busy 期間鎖輸入、送出與次要控件。回來後立刻撤掉。不改回合契約、不做 streaming。見 `docs/roadmap/0.9.0/`。

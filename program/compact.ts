@@ -11,6 +11,7 @@ import {
   loadEpisodes,
   loadGmNote,
   loadL2Current,
+  loadL2Psyche,
   loadScene,
   peekTurnId,
   npcMemoryDir,
@@ -18,6 +19,7 @@ import {
   saveCompactState,
   saveDirtySet,
   saveL2Current,
+  saveL2Psyche,
   sessionArchiveDir,
 } from "./kb.ts";
 import { debugLog, turnLog } from "./log.ts";
@@ -26,6 +28,7 @@ import {
   NpcArchiveEntrySchema,
   NpcArchiveIndexSchema,
   parseNpcArchiveModel,
+  parseNpcPsycheModel,
   SESSION_ARCHIVE_ID_RE,
   SessionArchiveIndexSchema,
   SessionSummarySchema,
@@ -41,6 +44,10 @@ export type CompactTestHooks = {
   npcArchive?: (npcId: string) =>
     | { title: string; summary: string; distilled_body: string }
     | Promise<{ title: string; summary: string; distilled_body: string }>;
+  npcPsyche?: (
+    npcId: string,
+    input: unknown,
+  ) => Record<string, string> | Promise<Record<string, string>>;
   failAfterScratch?: () => void;
   failAfterApply?: () => void;
 };
@@ -244,6 +251,76 @@ async function modelNpcArchive(npcId: string, payload: unknown): Promise<ReturnT
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`npc-archive ${npcId}: ${msg}`);
   }
+}
+
+async function modelNpcPsyche(npcId: string, payload: unknown): Promise<ReturnType<typeof parseNpcPsycheModel>> {
+  if (testHooks?.npcPsyche) {
+    return parseNpcPsycheModel(await testHooks.npcPsyche(npcId, payload), npcId);
+  }
+  const priorRaw =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>).prior_psyche : undefined;
+  const prior = priorRaw && typeof priorRaw === "object" ? (priorRaw as Record<string, unknown>) : {};
+  const passthrough = () =>
+    parseNpcPsycheModel(
+      {
+        npc_id: npcId,
+        disposition: typeof prior.disposition === "string" ? prior.disposition : "",
+        life_goal: typeof prior.life_goal === "string" ? prior.life_goal : "",
+        mid_goal: typeof prior.mid_goal === "string" ? prior.mid_goal : "",
+        short_goal: typeof prior.short_goal === "string" ? prior.short_goal : "",
+        likes: typeof prior.likes === "string" ? prior.likes : "",
+        dislikes: typeof prior.dislikes === "string" ? prior.dislikes : "",
+      },
+      npcId,
+    );
+  if (process.env.GM_MODE === "mock" || testHooks?.npcArchive) {
+    if (process.env.GM_MODE === "mock" && !testHooks?.npcArchive) {
+      return parseNpcPsycheModel(
+        {
+          npc_id: npcId,
+          disposition: typeof prior.disposition === "string" ? prior.disposition : "",
+          life_goal: typeof prior.life_goal === "string" ? prior.life_goal : "",
+          mid_goal: "mock 中期",
+          short_goal: "mock 短期",
+          likes: typeof prior.likes === "string" ? prior.likes : "",
+          dislikes: typeof prior.dislikes === "string" ? prior.dislikes : "",
+        },
+        npcId,
+      );
+    }
+    return passthrough();
+  }
+  const system = await readFile(join(import.meta.dir, "..", "prompts", "compact-npc-psyche.md"), "utf8");
+  try {
+    return parseNpcPsycheModel(await runScratchJson(system, JSON.stringify(payload), `compact-npc-psyche:${npcId}`), npcId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`npc-psyche ${npcId}: ${msg}`);
+  }
+}
+
+async function distillDepartedNpcPsyche(w: NpcWrite, entities: Entity[]): Promise<void> {
+  const ent = entities.find((e) => e.id === w.id);
+  const prior = await loadL2Psyche(w.id);
+  const persona = ent?.kind === "npc" ? (ent.persona ?? "").trim() : "";
+  const payload = {
+    npc_id: w.id,
+    name: ent?.name ?? w.id,
+    prior_psyche: {
+      disposition: prior.disposition,
+      life_goal: prior.life_goal,
+      mid_goal: prior.mid_goal,
+      short_goal: prior.short_goal,
+      likes: prior.likes,
+      dislikes: prior.dislikes,
+    },
+    archive_title: w.entry.title,
+    archive_summary: w.entry.summary,
+    distilled_body: w.distilled,
+    persona_excerpt: persona.slice(0, 400),
+  };
+  const next = await modelNpcPsyche(w.id, payload);
+  await saveL2Psyche(next);
 }
 
 function nextNpcArchiveId(npcId: string, existing: string[]): string {
@@ -558,7 +635,15 @@ async function runCompactAfterTurn(opts: {
     sessionJobFailed = true;
   }
 
-  for (const w of departedWrites) await commitNpcWrite(w, opts.turnId);
+  for (const w of departedWrites) {
+    await commitNpcWrite(w, opts.turnId);
+    try {
+      await distillDepartedNpcPsyche(w, entities);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      turnLog("compact", `psyche distill fail ${w.id}: ${msg}`);
+    }
+  }
 
   let sessionOk = false;
   let archiveId: string | undefined;

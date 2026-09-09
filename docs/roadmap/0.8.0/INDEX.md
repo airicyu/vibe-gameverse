@@ -18,7 +18,7 @@
 3. [`docs/reasoning.md`](./docs/reasoning.md)（WHY）
 4. 開工：[`HANDOFF.md`](./HANDOFF.md)
 
-規格對照（勿當本版契約）：[0.4.0](../0.4.0/INDEX.md) 分層檔位、[0.5.0](../0.5.0/INDEX.md) 回想／archive 舊語意、[0.6.0](../0.6.0/INDEX.md) compact scope。心理欄另見 [npc-l2-psyche](../backlog/npc-l2-psyche.md)，**本版不做**。
+規格對照（勿當本版契約）：[0.4.0](../0.4.0/INDEX.md) 分層檔位、[0.5.0](../0.5.0/INDEX.md) 回想／archive 舊語意、[0.6.0](../0.6.0/INDEX.md) compact scope。心理欄另見 [0.10.0](../0.10.0/INDEX.md)，**本版不做**。
 
 **上游路徑：** 錨點在「當前 active world 的 runtime」（`npcMemoryDir`／`sessionArchiveDir` 等）；不要求 0.7.0 狀態先改為 `shipped` 才可實作本版記憶契約。禁止 `rm` live `kb/worlds`。
 

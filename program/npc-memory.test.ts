@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import {
   commitCustomWorld,
   DEFAULT_L2_CURRENT_BODY,
+  DEFAULT_L2_PSYCHE,
   INITIAL_SCENE,
   activateTestWorld,
   kbRuntimeDir,
@@ -13,6 +14,7 @@ import {
   loadDirtySet,
   loadEntities,
   loadL2Current,
+  loadL2Psyche,
   loadNpcPool,
   resetPlaythrough,
   saveEntities,
@@ -27,6 +29,7 @@ import {
   EntitySchema,
   NpcArchiveEntrySchema,
   NpcArchiveIndexSchema,
+  parseNpcPsycheModel,
   parseGeneratedWorld,
   PrimerSchema,
   type Entity,
@@ -143,6 +146,13 @@ test("archive schemas: new writes omit quotes; old quotes strip; index has summa
   expect(entry.summary).toBe("知情未說。");
 });
 
+test("parseNpcPsycheModel clips overlong fields", () => {
+  const long = "長".repeat(250);
+  const parsed = parseNpcPsycheModel({ disposition: long, short_goal: "短".repeat(200) }, "ash");
+  expect(parsed.disposition.length).toBe(200);
+  expect(parsed.short_goal.length).toBe(120);
+});
+
 test("default setup L2 files and empty pool for mara/ash", async () => {
   await wipe();
   await setupDefaultForTest();
@@ -153,6 +163,10 @@ test("default setup L2 files and empty pool for mara/ash", async () => {
   const ash = await loadL2Current("ash");
   expect(bartender?.body.includes(DEFAULT_L2_CURRENT_BODY.bartender.slice(0, 6))).toBe(true);
   expect(ash?.body.includes("蠟封紙條")).toBe(true);
+  const barPsyche = await loadL2Psyche("bartender");
+  expect(barPsyche.disposition).toBe(DEFAULT_L2_PSYCHE.bartender.disposition);
+  expect(barPsyche.short_goal).toBe(DEFAULT_L2_PSYCHE.bartender.short_goal);
+  expect(existsSync(join(kbRuntimeDir, "npc-memory", "l2", "bartender", "psyche.json"))).toBe(true);
   const pool = await loadNpcPool();
   expect(pool.npcs.bartender).toBeUndefined();
   expect(pool.npcs.ash).toBeUndefined();
@@ -261,6 +275,9 @@ test("pool body over 600 promotes to L2 atomically; inject rolls back", async ()
   expect((await loadEntities()).find((e) => e.id === "scribe")?.memory_tier).toBe(2);
   expect((await loadNpcPool()).npcs.scribe).toBeUndefined();
   expect((await loadL2Current("scribe"))?.body.length).toBeGreaterThan(0);
+  const scribePsyche = await loadL2Psyche("scribe");
+  expect(scribePsyche.disposition).toBe("");
+  expect(scribePsyche.life_goal).toBe("");
   expect((await loadDirtySet()).touched.includes("scribe")).toBe(true);
 });
 
@@ -327,8 +344,65 @@ test("buildGmContext only includes present npcs; missing L2 omitted; no full poo
     l2ById: new Map([
       ["bartender", { npc_id: "bartender", body: "吧台印象", updated_turn: 0 }],
     ]),
+    l2PsycheById: new Map([
+      [
+        "bartender",
+        {
+          npc_id: "bartender",
+          disposition: "話少",
+          life_goal: "守店",
+          mid_goal: "北路",
+          short_goal: "吧台",
+          likes: "熟客",
+          dislikes: "鬧事",
+        },
+      ],
+    ]),
   });
-  expect(ctx.npc_memories).toEqual([{ npc_id: "bartender", tier: 2, body: "吧台印象" }]);
+  expect(ctx.npc_memories).toEqual([
+    {
+      npc_id: "bartender",
+      tier: 2,
+      body: "吧台印象",
+      psyche: {
+        disposition: "話少",
+        life_goal: "守店",
+        mid_goal: "北路",
+        short_goal: "吧台",
+        likes: "熟客",
+        dislikes: "鬧事",
+      },
+    },
+  ]);
+});
+
+test("missing psyche.json on L2 still yields empty psyche in gm context", async () => {
+  await wipe();
+  await setupDefaultForTest();
+  await rm(join(kbRuntimeDir, "npc-memory", "l2", "ash", "psyche.json"));
+  const entities = await loadEntities();
+  const scene = INITIAL_SCENE;
+  const ctx = buildGmContext({
+    player_text: "hi",
+    gm_note: "n",
+    scene,
+    memory_slice: { episodes: [], entities: [], relations: [] },
+    turn_id: "t0001",
+    timestamp: "t",
+    entities,
+    pool: await loadNpcPool(),
+    l2ById: new Map([["ash", await loadL2Current("ash")]]),
+    l2PsycheById: new Map([["ash", await loadL2Psyche("ash")]]),
+  });
+  const ash = ctx.npc_memories.find((m) => m.npc_id === "ash");
+  expect(ash?.psyche).toEqual({
+    disposition: "",
+    life_goal: "",
+    mid_goal: "",
+    short_goal: "",
+    likes: "",
+    dislikes: "",
+  });
 });
 
 test("dirty near_cap follows L2 body length 640", async () => {

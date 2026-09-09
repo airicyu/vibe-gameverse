@@ -23,12 +23,14 @@ import {
   loadCompactState,
   loadDirtySet,
   loadL2Current,
+  loadL2Psyche,
   loadScene,
   migratePlaySessionDir,
   playSessionsDir,
   resetPlaythrough,
   saveCompactState,
   saveL2Current,
+  DEFAULT_L2_PSYCHE,
   npcMemoryDir,
   sessionArchiveDir,
   setupDefaultForTest,
@@ -293,6 +295,79 @@ test("npc archive model ignores salient_quotes; disk has no quotes key", async (
   const onDisk = JSON.parse(await readFile(ashPath, "utf8"));
   expect("salient_quotes" in onDisk).toBe(false);
   expect(onDisk.summary).toContain("字條");
+});
+
+test("departed npc compact distills psyche; failure does not roll back archive", async () => {
+  await wipe();
+  await setupDefaultForTest();
+  const before = await loadL2Psyche("ash");
+  await writeFromGm(leaveAshGm(), "t0008", new Date().toISOString(), "tavern");
+  setCompactTestHooks({
+    npcArchive: () => ({
+      title: "灰離場",
+      summary: "字條未交，灰已不在場內。",
+      distilled_body: "短記憶。",
+    }),
+    npcPsyche: () => ({
+      npc_id: "ash",
+      disposition: before.disposition,
+      life_goal: before.life_goal,
+      mid_goal: "已離開，紙條仍未交",
+      short_goal: "",
+      likes: before.likes,
+      dislikes: before.dislikes,
+    }),
+  });
+  await maybeCompactAfterTurn({
+    turnId: "t0008",
+    gm: leaveAshGm(),
+    sceneBefore: INITIAL_SCENE,
+    mock: true,
+  });
+  expect(existsSync(join(kbRuntimeDir, "npc-memory", "l2", "ash", "archive", "na_ash_001.json"))).toBe(true);
+  const after = await loadL2Psyche("ash");
+  expect(after.mid_goal).toBe("已離開，紙條仍未交");
+
+  await wipe();
+  await setupDefaultForTest();
+  await writeFromGm(leaveAshGm(), "t0009", new Date().toISOString(), "tavern");
+  setCompactTestHooks({
+    npcArchive: () => ({
+      title: "灰再離",
+      summary: "又一次離場。",
+      distilled_body: "短。",
+    }),
+    npcPsyche: () => {
+      throw new Error("psyche fail");
+    },
+  });
+  await maybeCompactAfterTurn({
+    turnId: "t0009",
+    gm: leaveAshGm(),
+    sceneBefore: INITIAL_SCENE,
+    mock: true,
+  });
+  expect(existsSync(join(kbRuntimeDir, "npc-memory", "l2", "ash", "archive", "na_ash_001.json"))).toBe(true);
+  expect((await loadL2Psyche("ash")).mid_goal).toBe(DEFAULT_L2_PSYCHE.ash.mid_goal);
+});
+
+test("session near_cap compact does not update psyche", async () => {
+  await wipe();
+  await setupDefaultForTest();
+  await writeFromGm(talk(), "t0005", new Date().toISOString(), "tavern");
+  await saveL2Current({ npc_id: "bartender", body: "記".repeat(640), updated_turn: 5 });
+  const before = await loadL2Psyche("bartender");
+  await seedLiveJsonl();
+  setCompactTestHooks({
+    summary: () => ({ title: "段", body: "摘要正文夠長。" }),
+    npcArchive: npcHook,
+    npcPsyche: () => {
+      throw new Error("session must not distill psyche");
+    },
+  });
+  await maybeCompactAfterTurn({ turnId: "t0020", gm: talk(), sceneBefore: INITIAL_SCENE, mock: true });
+  const after = await loadL2Psyche("bartender");
+  expect(after).toEqual(before);
 });
 
 test("debugRunCompact skips judge and archives", async () => {

@@ -14,6 +14,7 @@ import {
   EntitySchema,
   EpisodeSchema,
   L2CurrentSchema,
+  NpcPsycheSchema,
   NpcPoolSchema,
   RelationSchema,
   SaveMetaSchema,
@@ -28,6 +29,8 @@ import {
   type Episode,
   type GeneratedWorld,
   type L2Current,
+  type NpcPsyche,
+  type NpcPsycheFields,
   type MemorySlice,
   type NpcPool,
   type Primer,
@@ -35,6 +38,8 @@ import {
   type SaveMeta,
   type SceneState,
   type World,
+  emptyNpcPsyche,
+  clipNpcPsyche,
 } from "./schema.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -113,8 +118,31 @@ export const DEFAULT_L2_CURRENT_BODY: Record<"bartender" | "ash", string> = {
   ash: "坐在角落。蠟封紙條在桌上。還沒決定要不要交給進來的人。",
 };
 
+export const DEFAULT_L2_PSYCHE: Record<"bartender" | "ash", NpcPsycheFields> = {
+  bartender: {
+    disposition: "話少、帶刺，用問題擋問題",
+    life_goal: "守住酒館與熟客的安穩",
+    mid_goal: "別讓北路話題把店裡捲進麻煩",
+    short_goal: "照顧吧台，少讓人注意到角落的灰",
+    likes: "熟客、乾淨杯子、不追問的人",
+    dislikes: "當眾追問北路、鬧事、逼她表態",
+  },
+  ash: {
+    disposition: "少露臉，句子短，不先交底",
+    life_goal: "把該辦的事辦完就離開，不拖入他人冒險",
+    mid_goal: "找一個不張揚的人收下蠟封紙條",
+    short_goal: "觀察進店的人，還沒決定要不要推紙條",
+    likes: "安靜角落、不組隊的對話、守口如瓶的人",
+    dislikes: "被當成守燈人、被拉隊、當眾逼問身分",
+  },
+};
+
 export function l2CurrentPath(npcId: string): string {
   return join(npcMemoryDir, "l2", npcId, "current.json");
+}
+
+export function l2PsychePath(npcId: string): string {
+  return join(npcMemoryDir, "l2", npcId, "psyche.json");
 }
 
 const PLAYTHROUGH_FILES = [
@@ -457,6 +485,14 @@ export async function commitDefaultWorld(saveName: string): Promise<{ world: Wor
       "npc-memory/l2/ash/current.json",
       JSON.stringify({ npc_id: "ash", body: DEFAULT_L2_CURRENT_BODY.ash, updated_turn: 0 }, null, 2),
     ],
+    [
+      "npc-memory/l2/bartender/psyche.json",
+      JSON.stringify({ npc_id: "bartender", ...DEFAULT_L2_PSYCHE.bartender }, null, 2),
+    ],
+    [
+      "npc-memory/l2/ash/psyche.json",
+      JSON.stringify({ npc_id: "ash", ...DEFAULT_L2_PSYCHE.ash }, null, 2),
+    ],
   ]);
   await atomicCommitPlaythrough(files, id);
   await setActiveWorld(id);
@@ -614,6 +650,23 @@ export async function saveL2Current(current: L2Current): Promise<void> {
   const dest = l2CurrentPath(current.npc_id);
   await mkdir(dirname(dest), { recursive: true });
   await writeFile(dest, JSON.stringify(L2CurrentSchema.parse(current), null, 2));
+}
+
+export async function loadL2Psyche(npcId: string): Promise<NpcPsyche> {
+  try {
+    const raw = JSON.parse(await readFile(l2PsychePath(npcId), "utf8"));
+    const parsed = NpcPsycheSchema.parse(raw);
+    if (parsed.npc_id !== npcId) return emptyNpcPsyche(npcId);
+    return clipNpcPsyche(parsed);
+  } catch {
+    return emptyNpcPsyche(npcId);
+  }
+}
+
+export async function saveL2Psyche(psyche: NpcPsyche): Promise<void> {
+  const dest = l2PsychePath(psyche.npc_id);
+  await mkdir(dirname(dest), { recursive: true });
+  await writeFile(dest, JSON.stringify(clipNpcPsyche(NpcPsycheSchema.parse(psyche)), null, 2));
 }
 
 export async function removeL2Dir(npcId: string): Promise<void> {

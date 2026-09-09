@@ -312,6 +312,77 @@ export const L2CurrentSchema = z.object({
 
 export type L2Current = z.infer<typeof L2CurrentSchema>;
 
+export const NPC_PSYCHE_FIELD_MAX = {
+  disposition: 200,
+  life_goal: 200,
+  mid_goal: 200,
+  short_goal: 120,
+  likes: 200,
+  dislikes: 200,
+} as const;
+
+export const NpcPsycheSchema = z.object({
+  npc_id: z.string().min(1),
+  disposition: z.string().max(NPC_PSYCHE_FIELD_MAX.disposition),
+  life_goal: z.string().max(NPC_PSYCHE_FIELD_MAX.life_goal),
+  mid_goal: z.string().max(NPC_PSYCHE_FIELD_MAX.mid_goal),
+  short_goal: z.string().max(NPC_PSYCHE_FIELD_MAX.short_goal),
+  likes: z.string().max(NPC_PSYCHE_FIELD_MAX.likes),
+  dislikes: z.string().max(NPC_PSYCHE_FIELD_MAX.dislikes),
+});
+
+export type NpcPsyche = z.infer<typeof NpcPsycheSchema>;
+
+export type NpcPsycheFields = Omit<NpcPsyche, "npc_id">;
+
+export function emptyNpcPsyche(npcId: string): NpcPsyche {
+  return {
+    npc_id: npcId,
+    disposition: "",
+    life_goal: "",
+    mid_goal: "",
+    short_goal: "",
+    likes: "",
+    dislikes: "",
+  };
+}
+
+function clipField(text: string, max: number): string {
+  return text.length <= max ? text : text.slice(0, max);
+}
+
+export function clipNpcPsyche(psyche: NpcPsyche): NpcPsyche {
+  return {
+    npc_id: psyche.npc_id,
+    disposition: clipField(psyche.disposition, NPC_PSYCHE_FIELD_MAX.disposition),
+    life_goal: clipField(psyche.life_goal, NPC_PSYCHE_FIELD_MAX.life_goal),
+    mid_goal: clipField(psyche.mid_goal, NPC_PSYCHE_FIELD_MAX.mid_goal),
+    short_goal: clipField(psyche.short_goal, NPC_PSYCHE_FIELD_MAX.short_goal),
+    likes: clipField(psyche.likes, NPC_PSYCHE_FIELD_MAX.likes),
+    dislikes: clipField(psyche.dislikes, NPC_PSYCHE_FIELD_MAX.dislikes),
+  };
+}
+
+export function npcPsycheFields(psyche: NpcPsyche): NpcPsycheFields {
+  const { npc_id: _id, ...fields } = clipNpcPsyche(psyche);
+  return fields;
+}
+
+export function parseNpcPsycheModel(raw: unknown, npcId: string): NpcPsyche {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return NpcPsycheSchema.parse(
+    clipNpcPsyche({
+      npc_id: typeof o.npc_id === "string" && o.npc_id.trim() ? o.npc_id : npcId,
+      disposition: typeof o.disposition === "string" ? o.disposition : "",
+      life_goal: typeof o.life_goal === "string" ? o.life_goal : "",
+      mid_goal: typeof o.mid_goal === "string" ? o.mid_goal : "",
+      short_goal: typeof o.short_goal === "string" ? o.short_goal : "",
+      likes: typeof o.likes === "string" ? o.likes : "",
+      dislikes: typeof o.dislikes === "string" ? o.dislikes : "",
+    }),
+  );
+}
+
 export const DirtySetSchema = z.object({
   since_session_archive: z.string().nullable(),
   touched: z.array(z.string()),
@@ -391,6 +462,7 @@ export type NpcMemorySnippet = {
   npc_id: string;
   tier: MemoryTier;
   body: string;
+  psyche?: NpcPsycheFields;
 };
 
 export const RelationSchema = z.object({

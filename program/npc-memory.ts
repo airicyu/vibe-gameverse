@@ -2,11 +2,13 @@ import {
   loadDirtySet,
   loadEntities,
   loadL2Current,
+  loadL2Psyche,
   loadNpcPool,
   removeL2Dir,
   saveDirtySet,
   saveEntities,
   saveL2Current,
+  saveL2Psyche,
   saveNpcPool,
 } from "./kb.ts";
 import type {
@@ -20,8 +22,10 @@ import type {
   NpcMemorySnippet,
   NpcPool,
   NpcPoolEntry,
+  NpcPsyche,
   SceneState,
 } from "./schema.ts";
+import { emptyNpcPsyche, npcPsycheFields } from "./schema.ts";
 
 export const TRIVIAL_ACTIONS = new Set([
   "greet",
@@ -178,6 +182,7 @@ async function promoteToL2(opts: {
   };
   try {
     await saveL2Current(current);
+    await saveL2Psyche(emptyNpcPsyche(id));
     promoteL2FailHook?.();
     setNpcTier(entities, id, 2);
     written.add(id);
@@ -209,6 +214,7 @@ export function assembleNpcMemories(input: {
   entities: Entity[];
   pool: NpcPool;
   l2ById: Map<string, L2Current | null>;
+  l2PsycheById?: Map<string, NpcPsyche>;
 }): NpcMemorySnippet[] {
   const byId = new Map(input.entities.map((e) => [e.id, e] as const));
   const out: NpcMemorySnippet[] = [];
@@ -219,7 +225,8 @@ export function assembleNpcMemories(input: {
     if (tier === 2) {
       const cur = input.l2ById.get(id);
       if (cur && cur.npc_id === id) {
-        out.push({ npc_id: id, tier: 2, body: cur.body });
+        const psyche = input.l2PsycheById?.get(id) ?? emptyNpcPsyche(id);
+        out.push({ npc_id: id, tier: 2, body: cur.body, psyche: npcPsycheFields(psyche) });
       }
       continue;
     }
@@ -240,6 +247,7 @@ export function buildGmContext(input: {
   entities: Entity[];
   pool: NpcPool;
   l2ById: Map<string, L2Current | null>;
+  l2PsycheById?: Map<string, NpcPsyche>;
 }): GmContext {
   return {
     player_text: input.player_text,
@@ -259,6 +267,17 @@ export async function loadL2MapForPresent(scene: SceneState, entities: Entity[])
     const ent = byId.get(id);
     if (!ent || ent.kind !== "npc" || npcTier(ent) !== 2) continue;
     map.set(id, await loadL2Current(id));
+  }
+  return map;
+}
+
+export async function loadL2PsycheMapForPresent(scene: SceneState, entities: Entity[]): Promise<Map<string, NpcPsyche>> {
+  const byId = new Map(entities.map((e) => [e.id, e] as const));
+  const map = new Map<string, NpcPsyche>();
+  for (const id of scene.present) {
+    const ent = byId.get(id);
+    if (!ent || ent.kind !== "npc" || npcTier(ent) !== 2) continue;
+    map.set(id, await loadL2Psyche(id));
   }
   return map;
 }
