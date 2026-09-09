@@ -23,6 +23,7 @@ import { buildGmContext, loadL2MapForPresent, loadL2PsycheMapForPresent } from "
 import {
   adjudicateDeep,
   adjudicateLite,
+  abandonPendingForNewTurn,
   hardRejectPayload,
   isHardRejectText,
   openDiscussPending,
@@ -83,7 +84,7 @@ export async function runTurn(raw: unknown, opts: RunTurnOptions = {}): Promise<
   }
 
   if (!opts.fromPending && (await loadPending())) {
-    throw new HttpError(409, { error: "adjudication_pending" });
+    await abandonPendingForNewTurn();
   }
 
   if (isHardRejectText(input.player_text)) {

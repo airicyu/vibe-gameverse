@@ -1,6 +1,6 @@
 # 0.10.0 L2 NPC 心理深度
 
-- 上游：[0.9.0 回合處理中 UI](../0.9.0/INDEX.md)（`in progress`；本版 **不**依賴 0.9.0 出貨，只假設現行對局／Writer／compact 已可玩）
+- 上游：[0.9.0 回合處理中 UI](../0.9.0/INDEX.md)（`shipped`；本版 **不**依賴 0.9.0 出貨，只假設現行對局／Writer／compact 已可玩）
 - 構想來源：原 [backlog/npc-l2-psyche.md](../backlog/npc-l2-psyche.md)（出貨後已刪；**契約以本 INDEX＋docs 為準**）
 - Changelog：根目錄 [`changelog.md`](../../../changelog.md)；同步 `VERSION.md` 與 `AGENTS.md`
 - 狀態：`shipped`

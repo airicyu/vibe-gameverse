@@ -4,16 +4,33 @@
 
 ---
 
+## 0.12.0 — 多套 Default 模板（2026-09-10）
+
+開新 Default 世界時可從五套預寫起始劇本擇一（copy 該套 `kb/seed/{id}/`，不是把使用者原文當 seed），或走既有 custom 引子。每套單場景、小卡司、一條鉤子。見 `docs/roadmap/0.12.0/`。
+
+### Added
+
+- 模板 id：`rust-lamp`／`cyberpunk`／`sword-dungeon`／`esper-city`／`mist-rite`
+- `POST /api/setup/default` 必帶 `template_id`；`GET /api/templates`；`world.json.template_id`
+- 對局 default system 讀 `prompts/gm-default/{id}.md`；mock 分套不串台
+- 主頁先選模板（名＋導語）再填存檔顯示名
+
+### Non-goals
+
+- 模板編輯器、章節切換、循環周目、圖像、多地點、以模板為底再 primer、改 0.11 控場 HTTP
+
+---
+
 ## 0.11.0 — 玩家過強輸入與 GM 控場（2026-09-10）
 
-故事頻道維持自由文字。超過本場合理範圍的行動先經輕量／深審閘門；仍過線則在獨立 GM 側欄談說服、切分或重輸，終態前不進對局 session／Writer。`player-memory/` 只存已承認事實與能力。待決時故事輸入顯示「行為待判決」。見 `docs/roadmap/0.11.0/`。
+故事頻道維持自由文字。超過本場合理範圍的行動先經輕量／深審閘門；仍過線則在獨立 GM 側欄談說服、切分或重輸，終態前不進對局 session／Writer。`player-memory/` 只存已承認事實與能力。待決時故事輸入不鎖，送出新句即改寫。見 `docs/roadmap/0.11.0/`。
 
 ### Added
 
 - 硬拒（未成年人／契約攻擊）與輕量／深審兩層閘門
 - `POST /api/gm-chat`、`gm-meta-sessions/`、pending 落盤
 - `player-memory/current.json`；setup 空檔；(1) 接受時 append
-- GM 側欄（預設 icon）；待判決 UI 取代 busy
+- GM／Debug 同右側抽屜分頁（Debug 僅 `config.debug`）；待決提示可改寫；側欄送出立刻顯示玩家句
 
 ### Non-goals
 

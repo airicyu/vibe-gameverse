@@ -38,12 +38,12 @@ test("empty worlds parent is home; turn 409", async () => {
 
 test("two setups coexist; opening B does not erase A", async () => {
   await wipe();
-  const a = await setupDefault({ save_name: "存檔甲" });
+  const a = await setupDefault({ template_id: "rust-lamp", save_name: "存檔甲" });
   const idA = a.save.id;
   const noteA = join(worldDir(idA), "gm_note.txt");
   expect(existsSync(noteA)).toBe(true);
   await requestHome();
-  const b = await setupDefault({ save_name: "存檔乙" });
+  const b = await setupDefault({ template_id: "rust-lamp", save_name: "存檔乙" });
   expect(b.save.id).not.toBe(idA);
   expect(existsSync(noteA)).toBe(true);
   expect(existsSync(join(worldDir(b.save.id), "world.json"))).toBe(true);
@@ -55,7 +55,7 @@ test("two setups coexist; opening B does not erase A", async () => {
 
 test("save_name is the display name; list has no separate title", async () => {
   await wipe();
-  const { world, save } = await setupDefault({ save_name: "我的第一局" });
+  const { world, save } = await setupDefault({ template_id: "rust-lamp", save_name: "我的第一局" });
   expect(save.save_name).toBe("我的第一局");
   expect(world.save_name).toBe("我的第一局");
   expect(world.id).toBe(save.id);
@@ -66,7 +66,7 @@ test("save_name is the display name; list has no separate title", async () => {
 
 test("home then reload same id keeps playthrough", async () => {
   await wipe();
-  const a = await setupDefault({ save_name: "可重載" });
+  const a = await setupDefault({ template_id: "rust-lamp", save_name: "可重載" });
   await writeFile(join(kbRuntimeDir, "gm_note.txt"), "標記仍在");
   await requestHome();
   expect(await getScreen()).toBe("home");
@@ -81,7 +81,7 @@ test("home then reload same id keeps playthrough", async () => {
 
 test("delete requires exact confirm delete", async () => {
   await wipe();
-  const a = await setupDefault({ save_name: "待刪" });
+  const a = await setupDefault({ template_id: "rust-lamp", save_name: "待刪" });
   const id = a.save.id;
   try {
     await deleteCurrentWorld({ confirm: "DELETE" });
@@ -118,7 +118,7 @@ test("half world not listed; load 409", async () => {
 
 test("bootWorlds clears pointer even if playable saves exist", async () => {
   await wipe();
-  const a = await setupDefault({ save_name: "開機測" });
+  const a = await setupDefault({ template_id: "rust-lamp", save_name: "開機測" });
   expect(await getScreen()).toBe("playing");
   expect(existsSync(join(kbWorldsDir, "current.json"))).toBe(true);
   await bootWorlds();
@@ -129,7 +129,7 @@ test("bootWorlds clears pointer even if playable saves exist", async () => {
 
 test("decoy runtime beside parent is not listed", async () => {
   await wipe();
-  await setupDefault({ save_name: "真存檔" });
+  await setupDefault({ template_id: "rust-lamp", save_name: "真存檔" });
   await requestHome();
   const decoy = join(kbWorldsDir, "..", "runtime");
   mkdirSync(decoy, { recursive: true });
@@ -149,9 +149,9 @@ test("decoy runtime beside parent is not listed", async () => {
 
 test("load while playing is 409", async () => {
   await wipe();
-  const a = await setupDefault({ save_name: "甲" });
+  const a = await setupDefault({ template_id: "rust-lamp", save_name: "甲" });
   await requestHome();
-  const b = await setupDefault({ save_name: "乙" });
+  const b = await setupDefault({ template_id: "rust-lamp", save_name: "乙" });
   expect(await getScreen()).toBe("playing");
   try {
     await loadWorld({ id: a.save.id });
@@ -169,7 +169,7 @@ test("VIBE_GAMEVERSE_KB_RUNTIME is ignored", async () => {
   const prev = process.env.VIBE_GAMEVERSE_KB_RUNTIME;
   process.env.VIBE_GAMEVERSE_KB_RUNTIME = join(kbWorldsDir, "should-not-use");
   try {
-    await setupDefault({ save_name: "env測" });
+    await setupDefault({ template_id: "rust-lamp", save_name: "env測" });
     expect(kbRuntimeDir.startsWith(kbWorldsDir)).toBe(true);
     expect(kbRuntimeDir.includes("should-not-use")).toBe(false);
   } finally {

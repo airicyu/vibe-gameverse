@@ -1,10 +1,10 @@
 # 0.8.0 角色記憶：情景摘要與定位（廢對白金句）
 
-- 上游：[0.7.0 多世界存檔](../0.7.0/INDEX.md)（`in progress`；本版假設 worlds／pointer 已可玩）
-- 下一版：[0.9.0 回合處理中 UI](../0.9.0/INDEX.md)（`in progress`；不依賴本版出貨）
+- 上游：[0.7.0 多世界存檔](../0.7.0/INDEX.md)（`shipped`；本版假設 worlds／pointer 已可玩）
+- 下一版：[0.9.0 回合處理中 UI](../0.9.0/INDEX.md)（`shipped`；不依賴本版出貨）
 - 構想來源：原 `backlog/memory-situations.md`（出貨後已刪；**契約以本 INDEX＋docs 為準**）
 - Changelog：根目錄 [`changelog.md`](../../../changelog.md)；同步 `VERSION.md` 與 `AGENTS.md`
-- 狀態：`in progress`
+- 狀態：`shipped`
 - 日期：2026-09-09（Asia/Hong_Kong）
 
 ## 產品句
@@ -86,7 +86,6 @@
 - [x] Writer：注入台詞字串不得原樣整段進 `current.body`。
 - [x] `bun test` 全綠；出貨 VERSION＝`0.8.0`。
 
-> 狀態維持 `in progress`：驗收與測試已過，**待使用者同意出貨**後才改 `shipped`／commit。
 ## 實作軌道
 
 ### Track A — Schema 與 compact 短呼叫

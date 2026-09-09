@@ -1,6 +1,6 @@
 # vibe-gameverse — Agent Context
 
-本檔給 coding agent 開工用。規格起點：`docs/handover.md`、`docs/brainstorm.md`。不要重新大開腦暴，除非 Eric 明確要求改定案。現行版本：**0.11.0**（`VERSION.md`、`changelog.md`）。契約：[0.11.0 玩家過強輸入與 GM 控場](docs/roadmap/0.11.0/INDEX.md)。上游：[0.10.0 L2 NPC 心理深度](docs/roadmap/0.10.0/INDEX.md)；[0.9.0 回合處理中 UI](docs/roadmap/0.9.0/INDEX.md)；[0.8.0 角色記憶](docs/roadmap/0.8.0/INDEX.md)；[0.7.0 多世界存檔](docs/roadmap/0.7.0/INDEX.md)。未排程構想：`docs/roadmap/backlog/`。
+本檔給 coding agent 開工用。規格起點：`docs/handover.md`、`docs/brainstorm.md`。不要重新大開腦暴，除非 Eric 明確要求改定案。現行版本：**0.12.0**（`VERSION.md`、`changelog.md`）。契約：[0.12.0 多套 Default 模板](docs/roadmap/0.12.0/INDEX.md)。上游：[0.11.0 玩家過強輸入與 GM 控場](docs/roadmap/0.11.0/INDEX.md)；[0.10.0 L2 NPC 心理深度](docs/roadmap/0.10.0/INDEX.md)；[0.9.0 回合處理中 UI](docs/roadmap/0.9.0/INDEX.md)；[0.8.0 角色記憶](docs/roadmap/0.8.0/INDEX.md)；[0.7.0 多世界存檔](docs/roadmap/0.7.0/INDEX.md)。未排程構想：`docs/roadmap/backlog/`。
 
 ## 語言（強制）
 
@@ -14,7 +14,7 @@
 
 **LLM 當 GM 的自由冒險 POC**。主體是遊戲 program，不是「只開 pi 聊天」。
 
-開局先到**主頁**：開始新故事（存檔顯示名 + 預設鏽燈酒館 `kb/seed/` 或自訂引子）或載入可玩存檔。完成 setup／load 後才進入回合迴圈。Default 卡司：玩家 + 瑪拉（`bartender`）+ 灰（`ash`）；一條線索（蠟封紙條／北路燈手）。Custom 仍單場景。不做多地點、任務系統、戰鬥、完整生圖管線、華麗產品 UI。
+開局先到**主頁**：開始新故事（選一套 Default 模板 + 存檔顯示名，或自訂引子）或載入可玩存檔。完成 setup／load 後才進入回合迴圈。Default 五套（`kb/seed/{template_id}/`）：鏽燈酒館、霓虹診所、封門前廳、仲介夜室、霧隱集會所；每套單場景、最多 3 NPC、一條鉤子。Custom 仍單場景。不做多地點、任務系統、戰鬥、完整生圖管線、華麗產品 UI。
 
 文字 NSFW 允許（玩家帶向即可）；**不可涉及未成年人**。沒有圖像生成管線。
 
@@ -35,11 +35,11 @@ Engram **只參考架構**，不要 clone、不要混個人 Engram。
 
 ## 一回合
 
-非 `screen === "playing"` 時 `POST /api/turn` 回 409（`not_playing`）。已有待決裁決時 `POST /api/turn` 回 409（`adjudication_pending`）。完成後：玩家文字 → 硬拒／輕量／必要時深審 → PASS 才 `runTurn` 對局 GM → zod `parseGmOutput` → Writer → Presenter。過線則 `POST /api/gm-chat` 在獨立 meta session 談 1／2／3。
+非 `screen === "playing"` 時 `POST /api/turn` 回 409（`not_playing`）。已有待決裁決時再 `POST /api/turn`＝放棄原句並以新句走完整閘門（不 409）。完成後：玩家文字 → 硬拒／輕量／必要時深審 → PASS 才 `runTurn` 對局 GM → zod `parseGmOutput` → Writer → Presenter。過線則 `POST /api/gm-chat` 在獨立 meta session 談 1／2／3。
 
 | 角色 | 職責 | 實作 |
 |------|------|------|
-| GM | 裁決、敘事、NPC 台詞、`gm_note` 整份覆寫 | `program/gm-pi.ts`（pi-agent session）；`GM_MODE=mock` 時 `gm-mock.ts`（default 酒館／custom 霧港） |
+| GM | 裁決、敘事、NPC 台詞、`gm_note` 整份覆寫 | `program/gm-pi.ts`（pi-agent session）；`GM_MODE=mock` 時 `gm-mock.ts`（依 `template_id` 分套／custom 霧港） |
 | Writer | 先吃 `events[]` 寫世界 KB，再機械更新 `npc-memory/`（池／L2 current／dirty set） | `program/writer.ts` + `program/npc-memory.ts`（程式，不另開模型） |
 | Presenter | `narration` + `npc_lines` | `program/public/` |
 
@@ -55,7 +55,8 @@ Compact **兩個 scope**（同一 `POST /api/turn`、非背景）：L2 離場且
 - **Pointer：** `kb/worlds/current.json` `{ id }`。僅 playing 有效。Turn／Writer／compact／對局 session 只打 pointer 那份 uuid。
 - **新 process 啟動：** `bootWorlds` 刪當時 pointer 的 `pending.json`（若有）再刪 `current.json` → 一律主頁，不自動 continue。同 process 內 F5 仍認 pointer；若仍 pending 則還原待判決。
 - **可玩：** 有效 `world.json`；custom 尚須非空 `gm_canon.md`；且 `world.json` 合法且 `id`＝目錄名（含 `save_name`）。半套不列出、load 409。
-- **Default 對局 system**＝`prompts/gm-contract.md` + `gm-default.md` + **該 uuid** NPC `persona` 區塊。
+- **Default 對局 system**＝`prompts/gm-contract.md` + **`prompts/gm-default/{template_id}.md`** + **該 uuid** NPC `persona` 區塊。禁止開 A 讀 B。`POST /api/setup/default` 必帶合法 `template_id`。
+- **`GET /api/templates`**：home 與 playing 皆可；回傳五套 id／顯示名／導語。
 - **Custom 對局 system**＝契約前綴 + 該 uuid `gm_canon.md` + runtime NPC `persona`。禁止把整份舊 `gm.md` 當 custom 前綴。禁止讀 repo `npc-*.md` 或 seed 組對局 prompt。
 - **`disposePlaySession`**：home／setup／load／delete 前只釋放（對局＋meta）。**`createPlaySession`**：setup 成功後。**`openLoadedPlaySession`**：load 後（有 jsonl 則 continue）。
 - **`POST /api/home`**：dispose + 刪本場 `pending.json` + 清 pointer；保留 `player-memory/current.json`。
@@ -69,8 +70,8 @@ Compact **兩個 scope**（同一 `POST /api/turn`、非背景）：L2 離場且
 
 ```text
 program/          # server、turn、setup、gm-pi、writer、npc-memory、kb、schema、world-mock、public UI
-prompts/          # gm-contract + gm-default + world-generate（可留 writer.md）；禁止 npc-*.md
-kb/seed/          # Default 開場 JSON 模板（含 NPC persona 與瑪拉／灰 memory_tier: 2）
+prompts/          # gm-contract + gm-default/{template_id}.md + world-generate（可留 writer.md）；禁止 npc-*.md；禁止根層 gm-default.md
+kb/seed/{id}/     # Default 開場 JSON 模板（每套 player／place／NPC／鉤子；L2 者 memory_tier: 2）
 kb/worlds/        # 多世界 parent（gitignore）；current.json + {uuid}/ 完整 playthrough
 docs/             # handover、brainstorm、roadmap
 ```
@@ -88,7 +89,7 @@ docs/             # handover、brainstorm、roadmap
 
 - 開頁若 `screen === "home"`：主頁；無對局氣泡；`world`／`scene` 為 null。
 - 對局等待 `POST /api/turn` 期間：輸入列可見「處理中」＋ spinner（非 streaming；非 setup「生成中…」）；回來後立刻撤。
-- 待決裁決：輸入列改「行為待判決」（**取代** busy，禁止兩套）；故事輸入 disable；GM 側欄展開。玩家氣泡僅故事 GM 成功後寫入 `#log`。`POST /api/gm-chat` 推進 meta；無 pending 時該 API 409。待決不鎖回主頁／刪世界。
+- 待決裁決：輸入列提示「上一句待 GM 裁決。於此送出新句即放棄並改寫。」（**不是** busy，禁止兩套）；故事輸入可送（新句＝改寫）。`#side-dock` 右側抽屜分頁順序：(1) GM (2) Debug（僅 `config.debug`）；待決時展開 GM。側欄送出立刻顯示玩家句。故事 `#log` 玩家氣泡僅故事 GM 成功後寫入。`POST /api/gm-chat` 推進 meta；無 pending 時該 API 409。待決不鎖回主頁／刪世界。
 - 「**重開畫面**」：只清 DOM 氣泡；KB 與 pi session 仍在。重整／HMR 也會清畫面，不清 KB（同 process 仍認 pointer）。
 - 「**回到主頁**」：`POST /api/home`；dispose + 清 pointer；不清 uuid。
 - 「**刪除此世界**」：dialog 輸入 `delete` → `POST /api/worlds/delete`。

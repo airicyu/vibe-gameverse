@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isTemplateId } from "./templates.ts";
 
 /** Player input — brainstorm §3.3; scene_id 缺則用已載入 scene，禁止預設 tavern。 */
 export const PlayerInputSchema = z.object({
@@ -560,13 +561,30 @@ export const ENTITY_ID_RE = /^[a-z][a-z0-9_]*$/;
 /** UUID directory name: lowercase 8-4-4-4-12. */
 export const WORLD_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** 單一 world.json：id＋save_name＋source；不再另開 save.json／title。 */
-export const WorldSchema = z.object({
+/** 單一 world.json：id＋save_name＋source；Default 另可有 template_id。 */
+export const WorldSchema = z.preprocess((raw) => {
+  if (!raw || typeof raw !== "object") return raw;
+  const o = { ...(raw as Record<string, unknown>) };
+  if (o.source === "custom") {
+    delete o.template_id;
+    return o;
+  }
+  if (o.source === "default") {
+    const tid = o.template_id;
+    if (tid == null || (typeof tid === "string" && tid.trim() === "")) {
+      o.template_id = "rust-lamp";
+    } else if (typeof tid === "string") {
+      o.template_id = tid.trim();
+    }
+  }
+  return o;
+}, z.object({
   id: z.string().regex(WORLD_UUID_RE),
   source: z.enum(["default", "custom"]),
   save_name: z.string().min(1).max(40),
   created_at: z.string().min(1),
-});
+  template_id: z.string().optional(),
+}));
 
 export type World = z.infer<typeof WorldSchema>;
 
@@ -580,6 +598,13 @@ export type SaveMeta = z.infer<typeof SaveMetaSchema>;
 
 export function saveMetaFromWorld(world: World): SaveMeta {
   return { id: world.id, save_name: world.save_name };
+}
+
+/** Default 盤上非法 template_id（非空且非五套）不得 coerce 酒館。 */
+export function isInvalidDefaultTemplate(world: World): boolean {
+  if (world.source !== "default") return false;
+  const tid = world.template_id;
+  return typeof tid === "string" && tid.length > 0 && !isTemplateId(tid);
 }
 
 export const CurrentPointerSchema = z.object({

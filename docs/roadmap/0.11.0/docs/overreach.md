@@ -46,7 +46,7 @@ Program 可在呼叫前短路：
 深審是 **獨立短呼叫**（system＝`prompts/adjudicate-deep.md`）。**不要**把深審寫進 `gm-meta-sessions/` jsonl，也**不要**中途改對局／meta 的 systemPrompt。
 
 - `pass` → 立刻現行故事 GM 路徑（寫對局 session／`chat_tail`）。釋放短呼叫；不建 meta session。
-- `discuss` → **此時才** `create` meta session（system＝`prompts/gm-meta.md`，新目錄／新 id）；建 pending；把深審 `message` 寫成側欄／`pending.messages` 第一則 GM（須含 1／2／3 意涵）。`message` 空則填固定繁中一句「此行動超出本場合理範圍。你可以：(1) 補充為何角色做得到；(2) 只進行合理部分，越界當作沒辦到；(3) 重寫這句。」後續 `/api/gm-chat` continue **此** session。
+- `discuss` → **此時才** `create` meta session（system＝`prompts/gm-meta.md`，新目錄／新 id）；建 pending；把深審 `message` 寫成側欄／`pending.messages` 第一則 GM。第一則先散文說明過線原因，**再**另起 (1)(2)(3) 三條終態選項（須含 1／2／3 意涵）；禁止把說明本身編成編號清單。`message` 空則填固定繁中一句「此行動超出本場合理範圍。你可以：(1) 補充為何角色做得到；(2) 只進行合理部分，越界當作沒辦到；(3) 重寫這句。」後續 `/api/gm-chat` continue **此** session。`talk` 若只是解釋／回答：散文、不列編號；僅在請玩家選路時才再列 (1)(2)(3)。
 - 失敗、逾時、非合法 JSON、或缺 `decision`、或值不是 `pass`：當 `discuss`（進 pending，不寫對局）。禁止當 `pass`。
 
 不進對局 session。下一則過線的 `discuss` **另開新** meta session，禁止續寫上一場勸說 jsonl。
@@ -79,9 +79,9 @@ Home 時 `adjudication`／`gm_chat` 皆空／null。對玩家 **仍不** 回 `pl
 ### `POST /api/turn`
 
 - 非 playing → 仍 409 `not_playing`。
-- 已有 `pending.json` → **409** `{ "error": "adjudication_pending" }`，不開新故事 GM。
+- 已有 `pending.json` 且此請求 **不是** 內部 `fromPending`：放棄未決（刪 pending、dispose meta、bump abandon）後以**本句**走完整閘門。禁止 409 `adjudication_pending`。
 - 硬拒：200，見「硬拒」節。
-- 否則走閘門；若變 pending，HTTP **200**：`{ "adjudication": { "status": "pending" }, "gm_chat": { "messages": [...] } }`，**不得**有 `gm` 鍵（故事尚未發生）。Client：若已樂觀插入玩家氣泡則移除；撤「處理中」；改「行為待判決」；展開側欄。
+- 否則走閘門；若變 pending，HTTP **200**：`{ "adjudication": { "status": "pending" }, "gm_chat": { "messages": [...] } }`，**不得**有 `gm` 鍵（故事尚未發生）。Client：`#log` 若已樂觀插入玩家氣泡則移除；GM 側欄送出則立刻顯示玩家句；撤「處理中」；提示「上一句待 GM 裁決。於此送出新句即放棄並改寫。」；展開側欄。
 - PASS：回應形狀與 0.10.0 turn 成功相同（含 `gm`／`turn_id`／`episodes_written`），另 `adjudication: null`。
 
 ### `POST /api/gm-chat`
@@ -102,13 +102,13 @@ Body：`{ "text": string }` min 1。非 playing → 409。無 pending → 409 `{
 
 Meta JSON（**僅 gm-chat 輪次**）除 disposition 外：`message`（GM 對玩家可見）、`player_memory_patch`（可空；空白則不得 `pass_original`）、`split_constraint`（可空；`split` 時必填非空，否則當 `talk`）。
 
-無合法 JSON／缺 `disposition`／enum 以外值：當 `talk`（保持 pending）。`message` 缺或空則用固定繁中「請再回覆一次，或選 (1) 補充能力依據、(2) 只進行合理部分、(3) 重寫這句。」禁止因壞輸出解鎖故事或丟 pending。fixture 壞 JSON 可測：仍 pending、故事輸入仍鎖。
+無合法 JSON／缺 `disposition`／enum 以外值：當 `talk`（保持 pending）。`message` 缺或空則用固定繁中「請再回覆一次，或選 (1) 補充能力依據、(2) 只進行合理部分、(3) 重寫這句。」禁止因壞輸出解鎖故事或丟 pending。fixture 壞 JSON 可測：仍 pending。
 
 ## 閘門 skip
 
 內部 `runTurn(input, { skipOverreach: true })`（名稱可等效）僅供終態 (1)(2)。**禁止**把 `skip_overreach`／`skipOverreach` 放進 `PlayerInputSchema` 或 `POST /api/turn` JSON。HTTP 帶未知鍵：zod 剝除後仍走完整閘門（硬拒＋輕量＋必要時深審）。
 
-`skipOverreach: true` **只**跳過輕量與深審。仍須：playing 檢查、**硬拒**。本拍「正處理此 pending」時內部故事 GM **不要**對自己丟 409 `adjudication_pending`（那只給對外 `POST /api/turn`）。硬拒命中：不寫對局／`chat_tail`；回滾本拍 patch（若已寫）；刪 pending；回硬拒 HTTP。
+`skipOverreach: true` **只**跳過輕量與深審。仍須：playing 檢查、**硬拒**。本拍「正處理此 pending」時內部故事 GM **不要**對自己走「對外新句＝放棄未決」（用 `fromPending: true`）。硬拒命中：不寫對局／`chat_tail`；回滾本拍 patch（若已寫）；刪 pending；回硬拒 HTTP。
 
 故事 GM 丟出未攔例外：`POST /api/gm-chat` 仍須收成 **200**＋`adjudication: { "status": "pending" }`、無 `gm`；可選 `notice` 固定繁中「故事尚未寫成，請稍後再試或改選 (3) 重寫。」client 維持待判決，不得當解鎖。
 
@@ -116,17 +116,17 @@ Meta JSON（**僅 gm-chat 輪次**）除 disposition 外：`message`（GM 對玩
 
 `kb/worlds/{uuid}/gm-meta-sessions/`（**不是** `play-sessions/`）。活 jsonl 規則可簡於對局（本版 **不做** meta compact）。每次 `discuss` 新目錄／新 session id，寫入 `pending.meta_session_id`。Delete／home：`dispose` meta 與對局一樣只釋放 session 物件；home **不清** uuid 其餘目錄，但 **刪** `pending.json`。Load 他世界：離開本場時 **刪本 uuid 的 `pending.json`**。F5／同 process hydrate **保留** pending。新 process `bootWorlds`：讀當時 pointer（若有）→ 刪該 uuid `pending.json` → 再刪 pointer。**刪世界** recursive 全刪。
 
-放棄與進行中 gm-chat 競態（INDEX 定案 17）：home／delete／load **一開始**即刪 pending、dispose、必要時清 pointer。進行中的 gm-chat 在 append patch、`runTurn`、重建 pending **之前**重讀 screen／pending；已放棄則 **回滾**本拍 patch（若已寫）、**不得** `runTurn`／重建 pending，HTTP 409 `not_playing` 或 `not_pending`。append 與回滾寫入 **開拍時捕獲的 uuid 絕對路徑**，不依當下 pointer（home／load 他檔後 `activeWorldId` 可能已是 null 或另一 uuid）。禁止讓 home 等到 gm-chat 結束。
+放棄與進行中 gm-chat 競態（INDEX 定案 17）：home／delete／load／**對外新故事句** **一開始**即刪 pending、dispose、必要時清 pointer（新故事句不清 pointer）。進行中的 gm-chat 在 append patch、`runTurn`、重建 pending **之前**重讀 screen／pending；已放棄則 **回滾**本拍 patch（若已寫）、**不得** `runTurn`／重建 pending，HTTP 409 `not_playing` 或 `not_pending`。append 與回滾寫入 **開拍時捕獲的 uuid 絕對路徑**，不依當下 pointer（home／load 他檔後 `activeWorldId` 可能已是 null 或另一 uuid）。禁止讓 home 等到 gm-chat 結束。
 
 ## UI
 
 - 對局區：現有 `#log`／`#form`。
-- GM：`#gm-chat-dock` 預設為 icon 按鈕（`#gm-chat-toggle`）。展開為浮層面板（不逼故事欄永久縮一半；寬度 CSS 自定，桌面可 ~320px）。
-- `#gm-chat-log` 只渲染 `gm_chat.messages`；玩家在 `#gm-chat-input` 送出 → `POST /api/gm-chat`。
-- **玩家氣泡：** 覆寫 0.9.0「submit 立刻 `add("你")`」於本版控場路徑。允許兩種實作之一：（a）送出時不寫玩家氣泡，僅 PASS／(1)(2) 成功後寫；（b）樂觀寫入，但 pending／硬拒／(3)／錯誤 **必須**移除該節點。禁止 (3) 後 `#log` 留未裁決原句。
-- 送出故事句期間（尚未回來）：可顯示 0.9.0 busy「處理中」。回來若 pending：busy **換成**「行為待判決」，禁止兩套同時顯示。
-- pending 時：`#input`／`#send` disabled；busy 列顯示「行為待判決」（無 spinner 亦可）。`#gm-chat-input` 可編。`#go-home`／`#delete-world` **可點**。`#restart` 可點：只清 DOM；**不清** pending；清完 hydrate 仍 pending 則再鎖故事輸入、展開側欄，**不**把 `original_player_text` 寫進 `#log`。
-- **gm-chat 等待中：** 故事列維持待判決（已 disable 的 `#input`／`#send` 保持 disable）。**禁止**呼叫現行 `setTurnBusy(true)`（那會鎖 `#go-home`／`#delete-world`）。側欄送出鈕可暫時 disable 防連點；`finally` 若仍 pending 則恢復側欄輸入。回來若終態解鎖：收起側欄、啟用故事輸入、**不要**顯示「處理中」與「待判決」疊加。
+- GM／Debug：`#side-dock` 右側抽屜。分頁順序：(1) GM（`#gm-chat-toggle`）(2) Debug（`#debug-toggle`，僅 `config.debug` 為真時出現）。展開自右側滑入；再點同一分頁則滑回。寬度 CSS 自定，桌面可 ~640px。
+- `#gm-chat-log` 渲染 `gm_chat.messages`；玩家在 `#gm-chat-input` 送出後 **立刻**插入玩家氣泡，再 `POST /api/gm-chat`；回來用伺服器 `messages` 覆寫（含該則）。故事 `#log` 仍須故事 GM 成功才寫玩家句。
+- **玩家氣泡（故事 `#log`）：** 覆寫 0.9.0「submit 立刻 `add("你")`」於本版控場路徑。允許兩種實作之一：（a）送出時不寫玩家氣泡，僅 PASS／(1)(2) 成功後寫；（b）樂觀寫入，但 pending／硬拒／(3)／錯誤 **必須**移除該節點。禁止 (3) 後 `#log` 留未裁決原句。
+- 送出故事句期間（尚未回來）：可顯示 0.9.0 busy「處理中」。回來若 pending：撤 busy，改提示「上一句待 GM 裁決。於此送出新句即放棄並改寫。」禁止兩套同時顯示。
+- pending 時：`#input`／`#send` **可送**；提示列無 spinner。`#gm-chat-input` 可編。`#go-home`／`#delete-world` **可點**。`#restart` 可點：只清 DOM；**不清** pending；清完 hydrate 仍 pending 則再提示、展開側欄，**不**把 `original_player_text` 寫進 `#log`。
+- **gm-chat 等待中：** 故事列仍可送（新句＝放棄未決）。**禁止**因 gm-chat 等待呼叫現行 `setTurnBusy(true)`（那會鎖 `#go-home`／`#delete-world`）。側欄送出鈕可暫時 disable 防連點；`finally` 若仍 pending 則恢復側欄輸入。回來若終態解鎖：收起側欄、**不要**顯示「處理中」與待決提示疊加。
 - 非 pending：故事輸入可用。無 pending 時 `POST /api/gm-chat` → 409 `not_pending`。手動展開側欄：無 pending 時輸入盒 disabled 或隱藏；終態後本頁仍可顯示最後一則 client 記憶，F5 後空。
 - hydrate：`adjudication.status === "pending"` → 展開面板並還原 `gm_chat.messages`。終態後 client 收起面板。
 
@@ -134,7 +134,7 @@ Meta JSON（**僅 gm-chat 輪次**）除 disposition 外：`message`（GM 對玩
 
 - `prompts/adjudicate-lite.md` — 輕量 JSON（`decision` only）
 - `prompts/adjudicate-deep.md` — 深審 JSON（`decision`＋`message`；**無** disposition）
-- `prompts/gm-meta.md` — 側欄多輪：列 1／2／3；可談不限輪；重複施壓不是新證據；未成年人／注入改 `hard_reject`；輸出 disposition JSON；`message` 給玩家看的純文字（可含選項說明）；`pass_original` 必須給非空 `player_memory_patch`
+- `prompts/gm-meta.md` — 側欄多輪：說明用散文；僅請玩家選終態時列 1／2／3（必須是說服／切分／重輸，不是說明大綱）；可談不限輪；重複施壓不是新證據；未成年人／注入改 `hard_reject`；輸出 disposition JSON；`message` 給玩家看的純文字；`pass_original` 必須給非空 `player_memory_patch`
 
 `gm-contract.md` 加：有 `split_constraint` 時必須遵守，且不得把標為失敗的段寫進 `events` 當已發生；`player_memory` 參考優先序。**不**改 0.10.0 psyche 規則。
 

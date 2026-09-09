@@ -11,8 +11,9 @@ import {
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { HttpError } from "./errors.ts";
-import { getNeedsSetup, getScreen, kbRuntimeDir, loadCompactState, loadCustomGmCanon, loadEntities, migratePlaySessionDir, playSessionsDir, syncWorldGate } from "./kb.ts";
-import { parseGmOutput, type Entity, type GmContext, type GmOutput } from "./schema.ts";
+import { getNeedsSetup, getScreen, kbRuntimeDir, loadCompactState, loadCustomGmCanon, loadDefaultGmCanon, loadEntities, migratePlaySessionDir, playSessionsDir, syncWorldGate } from "./kb.ts";
+import { parseGmOutput, isInvalidDefaultTemplate, type Entity, type GmContext, type GmOutput } from "./schema.ts";
+import { isTemplateId } from "./templates.ts";
 import { debugEnabled, debugLog, turnLog } from "./log.ts";
 
 const root = join(import.meta.dir, "..");
@@ -84,7 +85,10 @@ export async function buildPlaySystemPrompt(): Promise<string> {
   if (world.source === "custom") {
     parts.push(await loadCustomGmCanon());
   } else {
-    parts.push(await readFile(join(root, "prompts", "gm-default.md"), "utf8"));
+    if (isInvalidDefaultTemplate(world) || !isTemplateId(world.template_id)) {
+      throw new HttpError(500, { error: "invalid_template" });
+    }
+    parts.push(await loadDefaultGmCanon(world.template_id));
   }
   parts.push(...formatNpcPersonas(await loadEntities()));
   return parts.join("\n\n");

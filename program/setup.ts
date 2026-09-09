@@ -9,14 +9,17 @@ import {
   deleteActiveWorldDir,
   deletePending,
   getScreen,
+  inspectWorld,
   isPlayableWorld,
   listPlayableWorlds,
   loadActiveSave,
   setActiveWorld,
   syncWorldGate,
+  worldDir,
   type PlayableWorldListItem,
 } from "./kb.ts";
-import { PrimerSchema, parseSaveName, type SaveMeta, type World, WORLD_UUID_RE } from "./schema.ts";
+import { PrimerSchema, parseSaveName, type SaveMeta, type World, WORLD_UUID_RE, isInvalidDefaultTemplate } from "./schema.ts";
+import { isTemplateId, templatesPayload } from "./templates.ts";
 import { runOpeningTurnIfNeeded, type StoryTurnResult } from "./turn.ts";
 import { generateCustomSeed } from "./world-generate.ts";
 
@@ -73,12 +76,24 @@ export type SetupResult = {
   opening: StoryTurnResult | null;
 };
 
+export function listTemplates(): { templates: ReturnType<typeof templatesPayload>["templates"] } {
+  return templatesPayload();
+}
+
 export async function setupDefault(raw?: unknown): Promise<SetupResult> {
   const body = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const saveName = requireSaveName(body.save_name);
+  const tidRaw = body.template_id;
+  if (typeof tidRaw !== "string" || tidRaw.trim() === "") {
+    throw new HttpError(400, { error: "missing_template_id" });
+  }
+  const templateId = tidRaw.trim();
+  if (!isTemplateId(templateId)) {
+    throw new HttpError(400, { error: "invalid_template" });
+  }
   return withSetupLock(async (signal) => {
     if (signal.aborted) throw new HttpError(400, { error: "aborted" });
-    const result = await commitDefaultWorld(saveName);
+    const result = await commitDefaultWorld(saveName, templateId);
     if (signal.aborted) throw new HttpError(400, { error: "aborted" });
     await createPlaySession();
     const opening = await runOpeningTurnIfNeeded();
@@ -89,7 +104,7 @@ export async function setupDefault(raw?: unknown): Promise<SetupResult> {
 export async function setupCustom(raw: unknown, requestSignal?: AbortSignal): Promise<SetupResult> {
   const body = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const saveName = requireSaveName(body.save_name);
-  const { save_name: _s, ...primerRaw } = body;
+  const { save_name: _s, template_id: _ignoredTemplate, ...primerRaw } = body;
   const parsed = PrimerSchema.safeParse(primerRaw);
   if (!parsed.success) {
     const tooLong = parsed.error.issues.some((i) => i.code === "too_big");
@@ -163,7 +178,14 @@ export async function loadWorld(
   if (screen === "playing") {
     throw new HttpError(409, { error: "must_home", screen: "playing" });
   }
-  if (!WORLD_UUID_RE.test(id) || !(await isPlayableWorld(id))) {
+  if (!WORLD_UUID_RE.test(id)) {
+    throw new HttpError(409, { error: "not_playable" });
+  }
+  const inspect = await inspectWorld(worldDir(id));
+  if (inspect.kind === "valid" && isInvalidDefaultTemplate(inspect.world)) {
+    throw new HttpError(500, { error: "invalid_template" });
+  }
+  if (!(await isPlayableWorld(id))) {
     throw new HttpError(409, { error: "not_playable" });
   }
   await disposePlaySession();

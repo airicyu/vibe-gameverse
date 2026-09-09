@@ -10,24 +10,23 @@
     <main>
       <header>
         <h1 id="heading">vibe-gameverse</h1>
-        <p class="sub">自由文字 · 多世界存檔 · 記憶寫進 KB</p>
-        <p class="meta" id="meta"></p>
       </header>
 
       <section id="home" class="setup" hidden>
-        <p class="lead">主頁。開始新故事，或載入既有存檔。</p>
         <div class="row">
           <button type="button" id="home-new">開始新故事</button>
           <button type="button" id="home-load">載入存檔故事</button>
         </div>
 
         <div id="new-story" hidden>
+          <p class="hint">選一套起始劇本，再填存檔顯示名。</p>
           <label class="field">
             存檔顯示名（必填，1–40 字）
-            <input type="text" id="save-name" maxlength="40" placeholder="例如：第一次酒館" />
+            <input type="text" id="save-name" maxlength="40" placeholder="存檔顯示名" />
           </label>
+          <div id="template-list" class="template-list" hidden></div>
           <div class="row">
-            <button type="button" id="setup-default">預設：鏽燈酒館</button>
+            <button type="button" id="setup-default" disabled>開始預設劇本</button>
             <button type="button" id="setup-custom-toggle">自訂引子</button>
           </div>
           <form id="custom-form" class="custom-form" hidden>
@@ -63,43 +62,49 @@
       </section>
 
       <section id="play" hidden>
-        <section id="debug-panel" class="debug-panel" hidden>
-          <p class="debug-title">Debug</p>
-          <div class="row">
-            <button type="button" id="debug-compact">Session compact</button>
-          </div>
-          <p class="meta" id="debug-msg"></p>
-        </section>
         <section id="log" class="log" aria-live="polite"></section>
         <form id="form">
           <label class="sr" for="input">你要做什麼</label>
-          <textarea id="input" rows="2" placeholder="隨便說一句……（Enter 送出，Shift+Enter 換行）" required></textarea>
+          <textarea id="input" rows="2" placeholder="輸入回應... (Enter 送出，Shift+Enter 換行)" required></textarea>
           <div id="turn-busy" class="turn-busy" hidden aria-live="polite">
             <span class="turn-spinner" id="turn-spinner" aria-hidden="true"></span>
             <span id="turn-busy-label">處理中</span>
           </div>
           <div class="row">
             <button type="submit" id="send">送出</button>
-            <button type="button" id="restart" title="模擬重開 session：不清 KB，只刷新畫面，下一句會帶入 gm_note 與記憶切片">
-              重開畫面（保留記憶）
-            </button>
             <button type="button" id="go-home">回到主頁</button>
             <button type="button" id="delete-world" class="danger">刪除此世界</button>
           </div>
         </form>
-        <aside id="gm-chat-dock">
-          <button type="button" id="gm-chat-toggle" aria-expanded="false" title="GM">GM</button>
-          <div id="gm-chat-panel" hidden>
-            <p class="gm-chat-title">GM</p>
+      </section>
+
+      <aside id="side-dock" hidden>
+        <div class="side-dock-tabs">
+          <div class="side-dock-lead-tab">
+            <button type="button" id="side-dock-collapse" class="side-dock-collapse" disabled aria-hidden="true" tabindex="-1" title="收合側欄" aria-label="收合側欄">&gt;&gt;</button>
+          </div>
+          <button type="button" id="gm-chat-toggle" aria-expanded="false" aria-controls="gm-chat-panel" title="GM">GM</button>
+          <button type="button" id="debug-toggle" hidden aria-expanded="false" aria-controls="debug-panel" title="Debug">Debug</button>
+        </div>
+        <div class="side-dock-panels">
+          <div id="gm-chat-panel" role="dialog" aria-labelledby="gm-chat-title" aria-hidden="true" hidden inert>
+            <p class="gm-chat-title" id="gm-chat-title">GM</p>
             <div id="gm-chat-log" class="gm-chat-log"></div>
             <form id="gm-chat-form">
               <label class="sr" for="gm-chat-input">回覆 GM</label>
-              <textarea id="gm-chat-input" rows="2" placeholder="回覆 GM…"></textarea>
+              <textarea id="gm-chat-input" rows="2" placeholder="輸入回應... (Enter 送出，Shift+Enter 換行)"></textarea>
               <button type="submit" id="gm-chat-send">送出</button>
             </form>
           </div>
-        </aside>
-      </section>
+          <section id="debug-panel" class="debug-panel" hidden inert>
+            <p class="debug-title" id="debug-title">Debug</p>
+            <div class="row">
+              <button type="button" id="debug-compact">Session compact</button>
+            </div>
+            <p class="meta" id="debug-msg"></p>
+          </section>
+        </div>
+      </aside>
 
       <dialog id="delete-dialog">
         <form method="dialog" id="delete-form" class="delete-form">

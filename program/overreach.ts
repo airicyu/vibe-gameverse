@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { HttpError } from "./errors.ts";
 import { lastAssistantText, openPiSession, parseAssistantJson } from "./gm-pi.ts";
 import {
+  bumpAbandonGeneration,
   compactScratchDir,
   currentAbandonGeneration,
+  deletePending,
   getScreen,
   loadPending,
   loadPlayerMemory,
@@ -21,7 +23,7 @@ const OPENING_PLAYER_TEXT = "我環顧四周。";
 
 export const HARD_REJECT_NOTICE = "此輸入無法進入本場。";
 export const DEEP_DISCUSS_FALLBACK =
-  "此行動超出本場合理範圍。你可以：(1) 補充為何角色做得到；(2) 只進行合理部分，越界當作沒辦到；(3) 重寫這句。";
+  "此行動超出本場合理範圍。你可以：(1) 補充為何角色做得到；(2) 只進行合理部分，越界當作沒辦到；(3) 重寫這句（也可在故事欄直接送出新句）。";
 
 /** 驗收／mock 給人玩共用的過線子字串。 */
 export const OVERREACH_FIXTURE = "我立刻殺死在場所有人";
@@ -180,6 +182,14 @@ export function pendingResponse(pending: AdjudicationPending): {
     adjudication: { status: "pending" },
     gm_chat: { messages: pending.messages },
   };
+}
+
+export async function abandonPendingForNewTurn(): Promise<void> {
+  if (!(await loadPending())) return;
+  const { disposeMetaSession } = await import("./gm-meta.ts");
+  await disposeMetaSession();
+  bumpAbandonGeneration();
+  await deletePending();
 }
 
 export async function assertNotAbandoned(gen: number): Promise<void> {

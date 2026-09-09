@@ -3,7 +3,7 @@
 - 上游：[0.6.0 Compact 分 scope 與同回合平行](../0.6.0/INDEX.md)（`shipped`）
 - 構想來源：原 `backlog/multi-world-saves.md`（出貨後已刪；**契約以本 INDEX＋docs 為準**）
 - Changelog：出貨時寫根目錄 [`changelog.md`](../../../changelog.md)；同步 `VERSION.md` 與 `AGENTS.md`
-- 狀態：`in progress`
+- 狀態：`shipped`
 - 日期：2026-09-09（Asia/Hong_Kong）
 
 ## 產品句

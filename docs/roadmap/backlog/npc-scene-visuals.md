@@ -6,7 +6,7 @@
 
 文字 NSFW 仍允許；圖像另有管線與法規風險。 **不可涉及未成年人**（生圖 prompt、參考圖、Live2D 模型皆是）。例證皆虛構；勿把 live `kb/runtime` 或真人照片寫進日後 INDEX。
 
-與 [多套 Default 模板](./default-world-templates.md)、[多世界存檔](./multi-world-saves.md) 分工：模板／存檔提供 **哪一場世界、哪個 npc_id**；本項管 **圖怎麼產、怎麼疊、何時重產**。不把生圖模型當 GM。
+與 [0.12.0 多套 Default 模板](../0.12.0/INDEX.md)、[多世界存檔](../0.7.0/INDEX.md) 分工：模板／存檔提供 **哪一場世界、哪個 npc_id**；本項管 **圖怎麼產、怎麼疊、何時重產**。不把生圖模型當 GM。
 
 ---
 

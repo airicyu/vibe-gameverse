@@ -76,17 +76,15 @@ test("overreach fixture pending: no events, no chat_tail, no play-session user l
   expect(await loadPending()).not.toBeNull();
 });
 
-test("pending turn is 409 adjudication_pending", async () => {
+test("pending story turn abandons and runs the new sentence", async () => {
   await readyWorld();
   await runTurn({ player_text: OVERREACH_FIXTURE });
-  try {
-    await runTurn({ player_text: "你好" });
-    throw new Error("expected 409");
-  } catch (err) {
-    expect(err).toBeInstanceOf(HttpError);
-    expect((err as HttpError).status).toBe(409);
-    expect((err as HttpError).body.error).toBe("adjudication_pending");
-  }
+  expect(await loadPending()).not.toBeNull();
+  const result = await runTurn({ player_text: "我向櫃檯點一碗湯" });
+  expect(result.adjudication).toBeNull();
+  expect("gm" in result && result.gm).toBeTruthy();
+  expect(await loadPending()).toBeNull();
+  expect((await loadChatTail())[0]?.player_text).toBe("我向櫃檯點一碗湯");
 });
 
 test("HTTP skip_overreach key does not skip the gate", async () => {

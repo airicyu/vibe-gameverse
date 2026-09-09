@@ -24,6 +24,7 @@ import {
   SceneStateSchema,
   WORLD_UUID_RE,
   WorldSchema,
+  isInvalidDefaultTemplate,
   type CompactState,
   type DirtySet,
   type ChatTailEntry,
@@ -47,6 +48,12 @@ import {
   clipUtf16,
   PLAYER_MEMORY_BODY_MAX,
 } from "./schema.ts";
+import {
+  TEMPLATE_GM_NOTES,
+  TEMPLATE_VISIBLE,
+  isTemplateId,
+  type TemplateId,
+} from "./templates.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const kbSeedDir = join(root, "kb", "seed");
@@ -274,18 +281,38 @@ async function dirExists(path: string): Promise<boolean> {
   }
 }
 
-export async function loadSeedEntities(): Promise<Entity[]> {
-  const seedFiles = await readdir(kbSeedDir);
+export function seedDirFor(templateId: TemplateId): string {
+  return join(kbSeedDir, templateId);
+}
+
+export function defaultGmCanonPath(templateId: TemplateId): string {
+  return join(root, "prompts", "gm-default", `${templateId}.md`);
+}
+
+export async function loadDefaultGmCanon(templateId: TemplateId): Promise<string> {
+  try {
+    return await readFile(defaultGmCanonPath(templateId), "utf8");
+  } catch {
+    throw new HttpError(500, { error: "missing_canon" });
+  }
+}
+
+export async function loadSeedEntities(templateId: TemplateId): Promise<Entity[]> {
+  const dir = seedDirFor(templateId);
+  if (!(await dirExists(dir))) {
+    throw new HttpError(500, { error: "missing_seed" });
+  }
+  const seedFiles = await readdir(dir);
   const entities: Entity[] = [];
-  for (const f of seedFiles.filter((n) => n.endsWith(".json"))) {
-    const raw = JSON.parse(await readFile(join(kbSeedDir, f), "utf8"));
+  for (const f of seedFiles.filter((n) => n.endsWith(".json")).sort()) {
+    const raw = JSON.parse(await readFile(join(dir, f), "utf8"));
     entities.push(EntitySchema.parse(raw));
   }
   return entities;
 }
 
-export async function getSeedIds(): Promise<string[]> {
-  return (await loadSeedEntities()).map((e) => e.id);
+export async function getSeedIds(templateId: TemplateId = "rust-lamp"): Promise<string[]> {
+  return (await loadSeedEntities(templateId)).map((e) => e.id);
 }
 
 export type WorldInspect =
@@ -338,6 +365,7 @@ export async function isPlayableWorld(id: string): Promise<boolean> {
     const canon = await readGmCanonTrimmed(worldDir(id));
     if (canon == null || canon.length === 0) return false;
   }
+  if (isInvalidDefaultTemplate(inspect.world)) return false;
   return true;
 }
 
@@ -425,6 +453,21 @@ export async function syncWorldGate(): Promise<WorldGate> {
     const canon = await readGmCanonTrimmed();
     if (canon == null || canon.length === 0) {
       return { needs_setup: true, world: null };
+    }
+  }
+  if (isInvalidDefaultTemplate(inspect.world)) {
+    return { needs_setup: true, world: null };
+  }
+  if (inspect.world.source === "default") {
+    try {
+      const raw = JSON.parse(await readFile(paths.world, "utf8")) as Record<string, unknown>;
+      const tid = raw.template_id;
+      const missing = tid == null || (typeof tid === "string" && tid.trim() === "");
+      if (missing && inspect.world.template_id === "rust-lamp") {
+        await writeFile(paths.world, JSON.stringify(inspect.world, null, 2));
+      }
+    } catch {
+      /* inspect already succeeded */
     }
   }
   return { needs_setup: false, world: inspect.world };
@@ -549,14 +592,49 @@ export async function atomicCommitPlaythrough(
   }
 }
 
-export async function commitDefaultWorld(saveName: string): Promise<{ world: World; save: SaveMeta }> {
-  const id = randomUUID();
-  const entities = await loadSeedEntities();
+function deriveDefaultScene(templateId: TemplateId, entities: Entity[]): SceneState {
+  const places = entities.filter((e) => e.kind === "place");
+  if (places.length !== 1) {
+    throw new HttpError(500, { error: "missing_seed" });
+  }
+  const npcs = entities.filter((e) => e.kind === "npc").sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return {
+    scene_id: places[0]!.id,
+    present: ["player", ...npcs.map((e) => e.id)],
+    visible: [...TEMPLATE_VISIBLE[templateId]],
+  };
+}
+
+function l2CurrentBodyFor(npcId: string): string {
+  if (npcId === "bartender" || npcId === "ash") return DEFAULT_L2_CURRENT_BODY[npcId];
+  return "";
+}
+
+function l2PsycheFor(npcId: string): NpcPsyche {
+  if (npcId === "bartender") return { npc_id: npcId, ...DEFAULT_L2_PSYCHE.bartender };
+  if (npcId === "ash") return { npc_id: npcId, ...DEFAULT_L2_PSYCHE.ash };
+  return emptyNpcPsyche(npcId);
+}
+
+export async function commitDefaultWorld(
+  saveName: string,
+  templateId: TemplateId,
+): Promise<{ world: World; save: SaveMeta }> {
+  if (!isTemplateId(templateId)) {
+    throw new HttpError(400, { error: "invalid_template" });
+  }
+  await loadDefaultGmCanon(templateId);
+  const entities = await loadSeedEntities(templateId);
+  const scene = deriveDefaultScene(templateId, entities);
+  const l2Npcs = entities
+    .filter((e) => e.kind === "npc" && e.memory_tier === 2)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const world: World = {
-    id,
+    id: randomUUID(),
     source: "default",
     save_name: saveName,
     created_at: new Date().toISOString(),
+    template_id: templateId,
   };
   const save = saveMetaFromWorld(world);
   const files = new Map<string, string>([
@@ -564,8 +642,8 @@ export async function commitDefaultWorld(saveName: string): Promise<{ world: Wor
     ["episodes.json", "[]"],
     ["chat-tail.json", "[]"],
     ["relations.json", "[]"],
-    ["gm_note.txt", INITIAL_GM_NOTE],
-    ["scene.json", JSON.stringify(INITIAL_SCENE, null, 2)],
+    ["gm_note.txt", TEMPLATE_GM_NOTES[templateId]],
+    ["scene.json", JSON.stringify(scene, null, 2)],
     ["turn_counter.json", JSON.stringify({ n: 0 })],
     ["compact-state.json", JSON.stringify({ anchor_turn_n: 0 } satisfies CompactState, null, 2)],
     ["world.json", JSON.stringify(world, null, 2)],
@@ -573,35 +651,29 @@ export async function commitDefaultWorld(saveName: string): Promise<{ world: Wor
     [
       "npc-memory/dirty-set.json",
       JSON.stringify(
-        { since_session_archive: null, touched: ["bartender", "ash"], near_cap: [] } satisfies DirtySet,
+        {
+          since_session_archive: null,
+          touched: l2Npcs.map((e) => e.id),
+          near_cap: [],
+        } satisfies DirtySet,
         null,
         2,
       ),
-    ],
-    [
-      "npc-memory/l2/bartender/current.json",
-      JSON.stringify(
-        { npc_id: "bartender", body: DEFAULT_L2_CURRENT_BODY.bartender, updated_turn: 0 },
-        null,
-        2,
-      ),
-    ],
-    [
-      "npc-memory/l2/ash/current.json",
-      JSON.stringify({ npc_id: "ash", body: DEFAULT_L2_CURRENT_BODY.ash, updated_turn: 0 }, null, 2),
-    ],
-    [
-      "npc-memory/l2/bartender/psyche.json",
-      JSON.stringify({ npc_id: "bartender", ...DEFAULT_L2_PSYCHE.bartender }, null, 2),
-    ],
-    [
-      "npc-memory/l2/ash/psyche.json",
-      JSON.stringify({ npc_id: "ash", ...DEFAULT_L2_PSYCHE.ash }, null, 2),
     ],
     ["player-memory/current.json", JSON.stringify({ body: "" }, null, 2)],
   ]);
-  await atomicCommitPlaythrough(files, id);
-  await setActiveWorld(id);
+  for (const npc of l2Npcs) {
+    files.set(
+      `npc-memory/l2/${npc.id}/current.json`,
+      JSON.stringify({ npc_id: npc.id, body: l2CurrentBodyFor(npc.id), updated_turn: 0 }, null, 2),
+    );
+    files.set(
+      `npc-memory/l2/${npc.id}/psyche.json`,
+      JSON.stringify(clipNpcPsyche(l2PsycheFor(npc.id)), null, 2),
+    );
+  }
+  await atomicCommitPlaythrough(files, world.id);
+  await setActiveWorld(world.id);
   return { world, save };
 }
 
@@ -642,9 +714,12 @@ export async function commitCustomWorld(
   return { world, save };
 }
 
-/** 測試用：顯式灌 default，禁止依賴 boot 偷灌。 */
-export async function setupDefaultForTest(saveName = "test"): Promise<World> {
-  const { world } = await commitDefaultWorld(saveName);
+/** 測試用：顯式灌 default，禁止依賴 boot 偷灌。第一參數仍是存檔顯示名。 */
+export async function setupDefaultForTest(
+  saveName = "test",
+  templateId: TemplateId = "rust-lamp",
+): Promise<World> {
+  const { world } = await commitDefaultWorld(saveName, templateId);
   return world;
 }
 

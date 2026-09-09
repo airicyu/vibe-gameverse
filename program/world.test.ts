@@ -97,7 +97,7 @@ test("setup default replaces leftover custom entities", async () => {
   await commitCustomWorld(primer, mockGeneratedWorld(primer), "t");
   expect((await loadEntities()).some((e) => e.id === "keeper")).toBe(true);
   await resetPlaythrough();
-  const { world } = await setupDefault({ save_name: "t" });
+  const { world } = await setupDefault({ template_id: "rust-lamp", save_name: "t" });
   expect(world.source).toBe("default");
   const ids = new Set((await loadEntities()).map((e) => e.id));
   expect(ids.has("keeper")).toBe(false);
@@ -106,9 +106,9 @@ test("setup default replaces leftover custom entities", async () => {
 
 test("ready setup default returns 409", async () => {
   await wipe();
-  await setupDefault({ save_name: "t" });
+  await setupDefault({ template_id: "rust-lamp", save_name: "t" });
   try {
-    await setupDefault({ save_name: "t" });
+    await setupDefault({ template_id: "rust-lamp", save_name: "t" });
     throw new Error("expected HttpError");
   } catch (err) {
     expect(err).toBeInstanceOf(HttpError);
@@ -194,6 +194,10 @@ test("default play prompt uses runtime persona not only tavern names", async () 
   const custom = await buildPlaySystemPrompt();
   expect(custom.includes("瑪拉")).toBe(false);
   expect(custom.includes("harbor_inn") || custom.includes("霧港")).toBe(true);
+  expect(custom.includes("地下診所不接官方單")).toBe(false);
+  expect(custom.includes("封門符還熱著")).toBe(false);
+  expect(custom.includes("市區禁止釋放")).toBe(false);
+  expect(custom.includes("今晚不要出門")).toBe(false);
 });
 
 test("custom mock turn is not tavern cast", async () => {
@@ -345,14 +349,14 @@ test("custom missing canon allows setup (not already ready)", async () => {
     join(kbRuntimeDir, "world.json"),
     JSON.stringify({ source: "custom", title: "霧港", created_at: "2026-01-01T00:00:00.000Z" }),
   );
-  const { world } = await setupDefault({ save_name: "t" });
+  const { world } = await setupDefault({ template_id: "rust-lamp", save_name: "t" });
   expect(world.source).toBe("default");
 });
 
 test("setup and turn do not write repo prompts", async () => {
   const before = new Set(await readdir(PROMPTS_DIR));
   await wipe();
-  await setupDefault({ save_name: "t" });
+  await setupDefault({ template_id: "rust-lamp", save_name: "t" });
   await runTurn({ player_text: "你好" });
   await resetPlaythrough();
   await setupCustom({ ...LONG_PRIMER, save_name: "t" });

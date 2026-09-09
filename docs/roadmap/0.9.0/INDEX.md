@@ -1,9 +1,9 @@
 # 0.9.0 回合處理中 UI
 
-- 上游：[0.8.0 角色記憶：情景摘要與定位](../0.8.0/INDEX.md)（`in progress`；本版 **不**依賴 0.8.0 出貨或記憶契約，只假設現行對局 Web UI 與 `POST /api/turn` 已可玩）
+- 上游：[0.8.0 角色記憶：情景摘要與定位](../0.8.0/INDEX.md)（`shipped`；本版 **不**依賴 0.8.0 出貨或記憶契約，只假設現行對局 Web UI 與 `POST /api/turn` 已可玩）
 - 構想來源：原 [backlog/turn-in-progress-ui.md](../backlog/turn-in-progress-ui.md)（出貨後已刪；**契約以本 INDEX 為準**）
-- Changelog：根目錄 [`changelog.md`](../../../changelog.md)；同步 `VERSION.md` 與 `AGENTS.md`（出貨時）
-- 狀態：`in progress`
+- Changelog：根目錄 [`changelog.md`](../../../changelog.md)；同步 `VERSION.md` 與 `AGENTS.md`
+- 狀態：`shipped`
 - 日期：2026-09-09（Asia/Hong_Kong）
 
 ## 產品句
@@ -39,7 +39,7 @@
 7. **開場隱含 turn。** `runOpeningTurnIfNeeded` 發生在 setup／load 的 **同一 HTTP 回應之前**。主頁已有「生成中…」／load 忙碌。本版 **不**在進對局後再為開場套 turn spinner。F5／`hydrate` 已 playing、log 空、**沒有**進行中的 `POST /api/turn` → **不要**顯示「處理中」。
 8. **`GM_MODE=mock`。** 與 pi **同一套 client busy**，禁止依 mode 分支關掉。mock 可能一閃而過，可接受。
 9. **回主頁與 finally。** 若 turn 回 `not_playing`／`needs_setup` 而 `hydrate` 回主頁：busy 仍須在 finally 清掉，主頁不得殘留對局 spinner。finally **必撤** busy；若當下已非 playing（`#play` hidden／剛回主頁），則 **不要** 把 `#input` 設為可編輯、**不要** `focus`——僅在仍 playing 時才 `input.disabled = false` 並 `focus`。禁止為「保留現行 quirk」而在隱藏對局區啟用輸入。
-10. **與後續控場。** [玩家過強輸入](../backlog/player-overreach-adjudication.md) 若日後有裁決預覽，預覽 UI **取代**本 busy，不要兩套疊加。本版不實作預覽。
+10. **與後續控場。** [0.11.0 玩家過強輸入](../0.11.0/INDEX.md) 若日後有裁決預覽，預覽 UI **取代**本 busy，不要兩套疊加。本版不實作預覽。
 11. **測試。** 無強制瀏覽器 e2e。`bun test` 既有全綠。能加的 client 單測可加，非本版門檻。出貨前須在瀏覽器對局 **真送一句**（mock 或 pi）確認 busy 出現與撤銷；靜態截圖不算驗收。
 12. **出貨文件。** `VERSION.md`＝`0.9.0`；`changelog.md` 記本版；`AGENTS.md` 一句對局等待可見「處理中」（勿寫成 streaming）。出貨後刪 backlog 本列與 `turn-in-progress-ui.md`。不 hop 存檔。
 13. **busy 期間次要控件。** busy 期間一併 `disabled`：`#go-home`、`#restart`、`#delete-world`，以及可見時的 `#debug-compact`。finally 撤 busy 時：若仍 playing，一併恢復這些控件的可點狀態（debug 鈕僅在面板可見時恢復為可點）；若已回主頁，交由 `hydrate`／`showHome`，勿再強制啟用對局列控件。
@@ -69,7 +69,7 @@
 - [x] mock 與 pi 皆走同一套 busy（無 `GM_MODE` 關閉分支）。
 - [x] `bun test` 全綠；出貨 VERSION＝`0.9.0`；backlog 本列已刪。
 
-（瀏覽器真送一句：出貨前須由使用者在本機瀏覽器確認 busy 出現與撤銷；靜態／DOM 邏輯已對齊。INDEX 狀態維持 `in progress` 至同意出貨。）
+（瀏覽器真送一句：出貨前須由使用者在本機瀏覽器確認 busy 出現與撤銷；靜態／DOM 邏輯已對齊。已同意出貨；狀態 `shipped`。）
 
 ## 實作軌道
 
@@ -94,4 +94,4 @@
 
 - 繁體中文書面語；不 commit 除非使用者要求。
 - 勿 `rm` live `kb/worlds`。例證虛構。
-- 小改：實作開始時本檔狀態 → `in progress`；`shipped` 僅在驗收通過且使用者同意出貨。
+- 狀態已 `shipped`；後續改動另開版本。

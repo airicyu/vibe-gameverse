@@ -5,7 +5,7 @@
 - 角色：實作審查（不改程式；只認檔案／working tree／測試）
 - 對照基準：[`../INDEX.md`](../INDEX.md) 已定案＋驗收；[`../HANDOFF.md`](../HANDOFF.md)；HOW [`overreach.md`](./overreach.md)；WHY [`reasoning.md`](./reasoning.md)；背景 [`design-review.md`](./design-review.md)（非契約）
 - 抽樣錨點：`program/turn.ts`、`program/overreach.ts`、`program/gm-meta.ts`、`program/schema.ts`、`program/kb.ts`、`program/setup.ts`、`program/server.ts`、`program/npc-memory.ts`、`program/gm-mock.ts`、`program/writer.ts`、`program/public/app.js`／`index.html`／`styles.css`；`prompts/gm-contract.md`、`adjudicate-lite.md`、`adjudicate-deep.md`、`gm-meta.md`；測：`program/overreach.test.ts`、`program/npc-memory.test.ts`；出貨文件：`VERSION.md`、`changelog.md`、`AGENTS.md`、`docs/roadmap/backlog/`
-- **總評：** 無未關閉 HIGH。定案 17 回滾已改捕獲 uuid 路徑，`loadWorld` 會 bump generation，abandon-after-append 測通過。`GM_MODE=mock bun test` **全綠**（120 pass／0 fail）。M2（backlog／`in progress`）與 M4（本輪無瀏覽器實點）仍開，皆非主路徑程式缺陷、亦非 HIGH；出貨門檻尚欠使用者同意、瀏覽器驗收句、清 backlog。不可標 `shipped`。
+- **總評：** 無未關閉 HIGH。定案 17 回滾已改捕獲 uuid 路徑，`loadWorld` 會 bump generation，abandon-after-append 測通過。`GM_MODE=mock bun test` **全綠**（120 pass／0 fail）。M2 已關（2026-09-11 同意出貨：INDEX `shipped`、backlog 列與獨立檔已刪）。M4（瀏覽器實點）仍為非阻擋記錄。已標 `shipped`。
 
 ## Findings（本輪）
 
@@ -30,9 +30,9 @@
 
 `mockLite`／`mockDeep` 在 `player_text` 含 `OVERREACH_FIXTURE` 時改讀 `loadPlayerMemory()`：`body.trim()` 非空 → `pass`，否則 escalate／discuss。測 `accepted capability then same fixture passes gate` 本輪 **PASS**。Mock 以「非空 body」代理「已承認同類能力」，粒度粗於 PI prompt，給人玩／測同一套已能收回同 fixture。
 
-#### M2 — 出貨清單：backlog 列與獨立檔未刪；INDEX 仍 `in progress` — **仍開（待出貨／非阻擋）**
+#### M2 — 出貨清單：backlog 列與獨立檔；INDEX 狀態 — **關閉**（2026-09-11 同意出貨）
 
-**不當 HIGH。** `VERSION.md`＝`0.11.0`、`changelog.md` 0.11.0 節、`AGENTS.md` 閘門句已寫。`docs/roadmap/backlog/INDEX.md` 仍列本項（狀態字仍寫 `planned`）；`player-overreach-adjudication.md` 仍在。INDEX 狀態 `in progress`。待使用者同意出貨後刪 backlog 列與獨立檔，INDEX → `shipped`。不擋主路徑。
+`VERSION.md`＝`0.11.0`、`changelog.md` 0.11.0 節、`AGENTS.md` 閘門句已寫。`player-overreach-adjudication.md` 與 backlog 表列已刪；INDEX 已 `shipped`。
 
 #### M3 — 定案 4／14／15 若干退路無專測 — **關閉**
 
@@ -141,9 +141,9 @@ HANDOFF／實作 session 曾用隔離 mock HTTP（localhost）走過無害／過
 | `VERSION.md` = `0.11.0` | **是** |
 | `changelog.md` 0.11.0 節 | **是** |
 | `AGENTS.md` 閘門／pending／gm-chat／player-memory | **是** |
-| backlog 列與 `player-overreach-adjudication.md` 已刪 | **否**（M2；待同意出貨） |
+| backlog 列與 `player-overreach-adjudication.md` 已刪 | **是**（M2 關） |
 | `prompts/adjudicate-lite.md`／`adjudicate-deep.md`／`gm-meta.md` | **是** |
-| INDEX 狀態 `shipped` | **否**（`in progress`） |
+| INDEX 狀態 `shipped` | **是** |
 
 ## 修復追蹤
 
@@ -151,7 +151,7 @@ HANDOFF／實作 session 曾用隔離 mock HTTP（localhost）走過無害／過
 |----|----|------|--------------|
 | H1 | H | **關閉** | `appendPlayerMemoryPatchAt`／`savePlayerMemoryAt`；`loadWorld` bump；測「abandon after append…」本輪 PASS |
 | M1 | M | **關閉** | mock 讀 `player_memory.body`；測「accepted capability then same fixture passes gate」PASS |
-| M2 | M | **仍開（待出貨／非阻擋）** | 同意出貨後刪 backlog 列與獨立檔；INDEX → `shipped` |
+| M2 | M | **關閉** | 2026-09-11 同意出貨：backlog 列與獨立檔已刪；INDEX → `shipped` |
 | M3 | M | **關閉** | 未成年人、skip 硬拒、深審 throw→discuss、故事失敗 200 pending、定案 17 放棄：本輪皆 PASS |
 | M4 | M | **仍開（非阻擋主路徑；出貨門檻未勾）** | 瀏覽器實點：無害／過線／(3)／(1) 或 (2)。本輪無 browser MCP；`app.js` 鎖集已對齊 |
 | L1–L8 | L | 記錄 | L2 已補 `talk` 多輪；其餘見上表 |
@@ -162,4 +162,5 @@ HANDOFF／實作 session 曾用隔離 mock HTTP（localhost）走過無害／過
 | 輪次 | 日期 | 結論 |
 |------|------|------|
 | 初審 | 2026-09-10 | 主路徑與 mock 測全綠（112 pass）。**有未關閉 HIGH（H1）**（定案 17 回滾綁 pointer）。M1–M4 仍開。不可出貨。 |
-| 第 2 輪複審 | 2026-09-10 | **無未關閉 HIGH。** H1／M1／M3 核對成立並關閉。M2 待出貨、M4 瀏覽器未點（皆非阻擋主路徑）。`bun test` 120 pass／0 fail。不可 `shipped`，直至同意出貨、瀏覽器驗收、清 backlog。 |
+| 第 2 輪複審 | 2026-09-10 | **無未關閉 HIGH。** H1／M1／M3 核對成立並關閉。M2 當時待出貨、M4 瀏覽器未點。`bun test` 120 pass／0 fail。 |
+| 出貨同意 | 2026-09-11 | M2 關；INDEX `shipped`；backlog 列與 `player-overreach-adjudication.md` 已刪。M4 仍為非阻擋記錄。 |

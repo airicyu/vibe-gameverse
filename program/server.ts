@@ -18,6 +18,7 @@ import {
   deleteCurrentWorld,
   getSetupStatus,
   listWorlds,
+  listTemplates,
   loadWorld,
   requestHome,
   requestNewGame,
@@ -106,6 +107,16 @@ const server = Bun.serve({
           if (err instanceof HttpError) return jsonError(err);
           turnLog("http", `gm-chat failed  ${err instanceof Error ? err.message : String(err)}`);
           throw err;
+        }
+      },
+    },
+
+    "/api/templates": {
+      GET: async () => {
+        try {
+          return Response.json(listTemplates());
+        } catch (err) {
+          return jsonError(err);
         }
       },
     },

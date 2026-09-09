@@ -5,21 +5,21 @@ import { requestHome, setupDefault } from "./setup.ts";
 
 test("setupDefault auto-runs opening turn with narration", async () => {
   await wipeWorlds();
-  const result = await setupDefault({ save_name: "開場測" });
+  const result = await setupDefault({ template_id: "rust-lamp", save_name: "開場測" });
   expect(result.opening).not.toBeNull();
   expect(result.opening!.gm.narration.length).toBeGreaterThan(0);
   expect(result.opening!.gm.npc_lines.length).toBeGreaterThan(0);
   const episodes = await loadEpisodes();
   expect(episodes.length).toBeGreaterThan(0);
   await requestHome();
-  const again = await setupDefault({ save_name: "另一局" });
+  const again = await setupDefault({ template_id: "rust-lamp", save_name: "另一局" });
   // new world also gets opening
   expect(again.opening).not.toBeNull();
 });
 
 test("load after home does not re-open if episodes exist", async () => {
   await wipeWorlds();
-  const created = await setupDefault({ save_name: "可載入" });
+  const created = await setupDefault({ template_id: "rust-lamp", save_name: "可載入" });
   const id = created.save.id;
   const n = (await loadEpisodes()).length;
   expect(n).toBeGreaterThan(0);
@@ -32,7 +32,7 @@ test("load after home does not re-open if episodes exist", async () => {
 
 test("turns append chat_tail; load restores recent dialogue for UI", async () => {
   await wipeWorlds();
-  const created = await setupDefault({ save_name: "對話尾" });
+  const created = await setupDefault({ template_id: "rust-lamp", save_name: "對話尾" });
   const { runTurn } = await import("./turn.ts");
   const { loadChatTail } = await import("./kb.ts");
   await runTurn({ player_text: "我向櫃檯點一碗湯" });

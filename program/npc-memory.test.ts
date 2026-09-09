@@ -171,7 +171,7 @@ test("default setup L2 files and empty pool for mara/ash", async () => {
   expect(pool.npcs.bartender).toBeUndefined();
   expect(pool.npcs.ash).toBeUndefined();
   const dirty = await loadDirtySet();
-  expect(dirty.touched).toEqual(["bartender", "ash"]);
+  expect([...dirty.touched].sort()).toEqual(["ash", "bartender"]);
   expect(dirty.near_cap).toEqual([]);
   expect(existsSync(join(kbRuntimeDir, "npc-memory", "l2", "bartender", "archive"))).toBe(false);
 });
