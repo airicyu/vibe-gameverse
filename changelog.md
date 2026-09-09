@@ -4,6 +4,23 @@
 
 ---
 
+## 0.11.0 — 玩家過強輸入與 GM 控場（2026-09-10）
+
+故事頻道維持自由文字。超過本場合理範圍的行動先經輕量／深審閘門；仍過線則在獨立 GM 側欄談說服、切分或重輸，終態前不進對局 session／Writer。`player-memory/` 只存已承認事實與能力。待決時故事輸入顯示「行為待判決」。見 `docs/roadmap/0.11.0/`。
+
+### Added
+
+- 硬拒（未成年人／契約攻擊）與輕量／深審兩層閘門
+- `POST /api/gm-chat`、`gm-meta-sessions/`、pending 落盤
+- `player-memory/current.json`；setup 空檔；(1) 接受時 append
+- GM 側欄（預設 icon）；待判決 UI 取代 busy
+
+### Non-goals
+
+- 技能表／戰鬥、玩家 psyche、無 pending 的 GM 閒聊、故事氣泡確認卡
+
+---
+
 ## 0.10.0 — L2 NPC 心理深度（2026-09-10）
 
 `memory_tier === 2` 另存 `npc-memory/l2/{id}/psyche.json`（性格、人生／中期／短期目標、喜好／厭惡）。GM `npc_memories` 附 `psyche`；Default 瑪拉／灰有預製。升 2 建空檔。僅 **離場** NPC compact 後 psyche 短呼叫更新；session near_cap distill **不**改 psyche。不 hop；不進 HTTP。見 `docs/roadmap/0.10.0/`。

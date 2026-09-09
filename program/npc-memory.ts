@@ -248,8 +248,10 @@ export function buildGmContext(input: {
   pool: NpcPool;
   l2ById: Map<string, L2Current | null>;
   l2PsycheById?: Map<string, NpcPsyche>;
+  player_memory?: { body: string };
+  split_constraint?: string;
 }): GmContext {
-  return {
+  const ctx: GmContext = {
     player_text: input.player_text,
     gm_note: input.gm_note,
     scene: input.scene,
@@ -257,7 +259,10 @@ export function buildGmContext(input: {
     turn_id: input.turn_id,
     timestamp: input.timestamp,
     npc_memories: assembleNpcMemories(input),
+    player_memory: { body: input.player_memory?.body ?? "" },
   };
+  if (input.split_constraint?.trim()) ctx.split_constraint = input.split_constraint.trim();
+  return ctx;
 }
 
 export async function loadL2MapForPresent(scene: SceneState, entities: Entity[]): Promise<Map<string, L2Current | null>> {

@@ -1,10 +1,13 @@
 import { HttpError } from "./errors.ts";
 import { createPlaySession, disposePlaySession, openLoadedPlaySession } from "./gm-pi.ts";
+import { disposeMetaSession } from "./gm-meta.ts";
 import {
+  bumpAbandonGeneration,
   clearPointer,
   commitCustomWorld,
   commitDefaultWorld,
   deleteActiveWorldDir,
+  deletePending,
   getScreen,
   isPlayableWorld,
   listPlayableWorlds,
@@ -14,7 +17,7 @@ import {
   type PlayableWorldListItem,
 } from "./kb.ts";
 import { PrimerSchema, parseSaveName, type SaveMeta, type World, WORLD_UUID_RE } from "./schema.ts";
-import { runOpeningTurnIfNeeded, type TurnResult } from "./turn.ts";
+import { runOpeningTurnIfNeeded, type StoryTurnResult } from "./turn.ts";
 import { generateCustomSeed } from "./world-generate.ts";
 
 export type SetupStatus = "idle" | "generating";
@@ -67,7 +70,7 @@ async function withSetupLock<T>(fn: (signal: AbortSignal) => Promise<T>): Promis
 export type SetupResult = {
   world: World;
   save: SaveMeta;
-  opening: TurnResult | null;
+  opening: StoryTurnResult | null;
 };
 
 export async function setupDefault(raw?: unknown): Promise<SetupResult> {
@@ -127,6 +130,9 @@ export async function requestHome(): Promise<{ ok: true; screen: "home" }> {
     }
   }
   await disposePlaySession();
+  await disposeMetaSession();
+  bumpAbandonGeneration();
+  await deletePending();
   await clearPointer();
   return { ok: true, screen: "home" };
 }
@@ -142,7 +148,7 @@ export async function listWorlds(): Promise<{ worlds: PlayableWorldListItem[] }>
 
 export async function loadWorld(
   raw: unknown,
-): Promise<{ ok: true; world: World; save: SaveMeta; opening: TurnResult | null }> {
+): Promise<{ ok: true; world: World; save: SaveMeta; opening: StoryTurnResult | null }> {
   if (setupStatus === "generating" || setupFlight) {
     throw new HttpError(409, { generating: true, error: "setup already running" });
   }
@@ -161,6 +167,8 @@ export async function loadWorld(
     throw new HttpError(409, { error: "not_playable" });
   }
   await disposePlaySession();
+  await disposeMetaSession();
+  bumpAbandonGeneration();
   await setActiveWorld(id);
   const gate = await syncWorldGate();
   if (gate.needs_setup || !gate.world) {
@@ -187,6 +195,8 @@ export async function deleteCurrentWorld(raw: unknown): Promise<{ ok: true; scre
     throw new HttpError(400, { error: "confirm_mismatch" });
   }
   await disposePlaySession();
+  await disposeMetaSession();
+  bumpAbandonGeneration();
   await deleteActiveWorldDir();
   return { ok: true, screen: "home" };
 }

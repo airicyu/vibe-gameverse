@@ -75,8 +75,8 @@
           <label class="sr" for="input">你要做什麼</label>
           <textarea id="input" rows="2" placeholder="隨便說一句……（Enter 送出，Shift+Enter 換行）" required></textarea>
           <div id="turn-busy" class="turn-busy" hidden aria-live="polite">
-            <span class="turn-spinner" aria-hidden="true"></span>
-            <span>處理中</span>
+            <span class="turn-spinner" id="turn-spinner" aria-hidden="true"></span>
+            <span id="turn-busy-label">處理中</span>
           </div>
           <div class="row">
             <button type="submit" id="send">送出</button>
@@ -87,6 +87,18 @@
             <button type="button" id="delete-world" class="danger">刪除此世界</button>
           </div>
         </form>
+        <aside id="gm-chat-dock">
+          <button type="button" id="gm-chat-toggle" aria-expanded="false" title="GM">GM</button>
+          <div id="gm-chat-panel" hidden>
+            <p class="gm-chat-title">GM</p>
+            <div id="gm-chat-log" class="gm-chat-log"></div>
+            <form id="gm-chat-form">
+              <label class="sr" for="gm-chat-input">回覆 GM</label>
+              <textarea id="gm-chat-input" rows="2" placeholder="回覆 GM…"></textarea>
+              <button type="submit" id="gm-chat-send">送出</button>
+            </form>
+          </div>
+        </aside>
       </section>
 
       <dialog id="delete-dialog">

@@ -490,7 +490,70 @@ export type GmContext = {
   timestamp: string;
   npc_memories: NpcMemorySnippet[];
   archive_excerpts?: string;
+  /** 參考事實與已承認能力，非玩家人格腳本。不進對玩家 HTTP。 */
+  player_memory: { body: string };
+  /** 僅切分該拍；不落 gm_note、不進對玩家 HTTP。 */
+  split_constraint?: string;
 };
+
+export const PLAYER_MEMORY_BODY_MAX = 800;
+
+export const PlayerMemorySchema = z.object({
+  body: z.string(),
+});
+
+export type PlayerMemory = z.infer<typeof PlayerMemorySchema>;
+
+export function clipUtf16(text: string, max: number): string {
+  return text.length <= max ? text : text.slice(0, max);
+}
+
+export const AdjudicationPendingSchema = z.object({
+  original_player_text: z.string().min(1),
+  created_turn_id: z.string(),
+  meta_session_id: z.string().min(1),
+  messages: z.array(
+    z.object({
+      role: z.enum(["gm", "player"]),
+      text: z.string(),
+    }),
+  ),
+});
+
+export type AdjudicationPending = z.infer<typeof AdjudicationPendingSchema>;
+
+export const LiteAdjudicationSchema = z.object({
+  decision: z.enum(["pass", "escalate"]),
+});
+
+export const DeepAdjudicationSchema = z.object({
+  decision: z.enum(["pass", "discuss"]),
+  message: z.string().optional().default(""),
+});
+
+/** 側欄 meta 終態；與 NpcPsyche.disposition（性格）分開。 */
+export const GmMetaDispositionSchema = z.enum([
+  "talk",
+  "pass_original",
+  "split",
+  "revise",
+  "hard_reject",
+]);
+
+export type GmMetaDisposition = z.infer<typeof GmMetaDispositionSchema>;
+
+export const GmMetaOutputSchema = z.object({
+  disposition: GmMetaDispositionSchema,
+  message: z.string().optional().default(""),
+  player_memory_patch: z.string().optional().default(""),
+  split_constraint: z.string().optional().default(""),
+});
+
+export type GmMetaOutput = z.infer<typeof GmMetaOutputSchema>;
+
+export const GmChatBodySchema = z.object({
+  text: z.string().min(1),
+});
 
 export const ENTITY_ID_RE = /^[a-z][a-z0-9_]*$/;
 

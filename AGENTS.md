@@ -1,6 +1,6 @@
 # vibe-gameverse — Agent Context
 
-本檔給 coding agent 開工用。規格起點：`docs/handover.md`、`docs/brainstorm.md`。不要重新大開腦暴，除非 Eric 明確要求改定案。現行版本：**0.10.0**（`VERSION.md`、`changelog.md`）。契約：[0.10.0 L2 NPC 心理深度](docs/roadmap/0.10.0/INDEX.md)。上游：[0.9.0 回合處理中 UI](docs/roadmap/0.9.0/INDEX.md)；[0.8.0 角色記憶](docs/roadmap/0.8.0/INDEX.md)；[0.7.0 多世界存檔](docs/roadmap/0.7.0/INDEX.md)。未排程構想：`docs/roadmap/backlog/`。
+本檔給 coding agent 開工用。規格起點：`docs/handover.md`、`docs/brainstorm.md`。不要重新大開腦暴，除非 Eric 明確要求改定案。現行版本：**0.11.0**（`VERSION.md`、`changelog.md`）。契約：[0.11.0 玩家過強輸入與 GM 控場](docs/roadmap/0.11.0/INDEX.md)。上游：[0.10.0 L2 NPC 心理深度](docs/roadmap/0.10.0/INDEX.md)；[0.9.0 回合處理中 UI](docs/roadmap/0.9.0/INDEX.md)；[0.8.0 角色記憶](docs/roadmap/0.8.0/INDEX.md)；[0.7.0 多世界存檔](docs/roadmap/0.7.0/INDEX.md)。未排程構想：`docs/roadmap/backlog/`。
 
 ## 語言（強制）
 
@@ -35,7 +35,7 @@ Engram **只參考架構**，不要 clone、不要混個人 Engram。
 
 ## 一回合
 
-非 `screen === "playing"` 時 `POST /api/turn` 回 409（`not_playing`）。完成後：玩家文字 → `POST /api/turn` → `runTurn` → GM JSON → zod `parseGmOutput` → Writer → Presenter。
+非 `screen === "playing"` 時 `POST /api/turn` 回 409（`not_playing`）。已有待決裁決時 `POST /api/turn` 回 409（`adjudication_pending`）。完成後：玩家文字 → 硬拒／輕量／必要時深審 → PASS 才 `runTurn` 對局 GM → zod `parseGmOutput` → Writer → Presenter。過線則 `POST /api/gm-chat` 在獨立 meta session 談 1／2／3。
 
 | 角色 | 職責 | 實作 |
 |------|------|------|
@@ -43,7 +43,7 @@ Engram **只參考架構**，不要 clone、不要混個人 Engram。
 | Writer | 先吃 `events[]` 寫世界 KB，再機械更新 `npc-memory/`（池／L2 current／dirty set） | `program/writer.ts` + `program/npc-memory.ts`（程式，不另開模型） |
 | Presenter | `narration` + `npc_lines` | `program/public/` |
 
-GM 每回合吃：`player_text`、`gm_note`、`scene`、`memory_slice`（近 8 則 episode 摘要 + entities + relations）、**在場** `npc_memories`（L2 讀 `npc-memory/l2/{id}/current.json` **body** ＋同目錄 **`psyche.json` 六欄**；L0／L1 讀 `pool.json` 該節；禁止整份 pool），可選回想摘錄（啟發式才掃已存在的 archive：**summary + locator**，零 quotes／零 jsonl 剪句；閘門含點名 L2＋有 archive），加上 **pi session 活 jsonl**（該 uuid 的 `play-sessions/`；成功 session compact 後換成新檔）。Writer **不讀**聊天逐字稿。`private_notes` 不併進 `npc_memories`。`npc_memories` 與 archive 摘錄 **不**進對玩家 HTTP。對局 GM JSON **必填** `scene`。
+GM 每回合吃：`player_text`、`gm_note`、`scene`、`memory_slice`（近 8 則 episode 摘要 + entities + relations）、**在場** `npc_memories`（L2 讀 `npc-memory/l2/{id}/current.json` **body** ＋同目錄 **`psyche.json` 六欄**；L0／L1 讀 `pool.json` 該節；禁止整份 pool），可選回想摘錄（啟發式才掃已存在的 archive：**summary + locator**，零 quotes／零 jsonl 剪句；閘門含點名 L2＋有 archive），**`player_memory.body`**（該 uuid `player-memory/current.json`；參考已承認事實／能力，非人格腳本），加上 **pi session 活 jsonl**（該 uuid 的 `play-sessions/`；成功 session compact 後換成新檔）。Writer **不讀**聊天逐字稿、**不**改 `player-memory`。`private_notes` 不併進 `npc_memories`。`npc_memories`、`player_memory` 與 archive 摘錄 **不**進對玩家 HTTP。對局 GM JSON **必填** `scene`。優先序：本回合 `player_text` ＞ 玩家檔事實 ＞ 世界 KB。
 
 Compact **兩個 scope**（同一 `POST /api/turn`、非背景）：L2 離場且有資格 → 只封該 NPC（`Promise.allSettled` 平行），成功後 **離場路徑** 另一次 psyche 短呼叫；session 換檔由滿 N（倉庫預設 **8**）、`scene_id` 換幕或強制線觸發，**不**再問 judge、**不**因 `present` 進出整場封。Session near_cap distill **不**改 `psyche.json`。離場 NPC 失敗不拖垮 session；session 失敗不回滾已提交的離場 NPC；psyche distill 失敗 **不**回滾 archive。`near_cap` 640 仍只看 `body` 長度。Mock 給人玩不自動跑 compact 短呼叫（psyche 同 skip）。
 
@@ -53,11 +53,12 @@ Compact **兩個 scope**（同一 `POST /api/turn`、非背景）：L2 離場且
 
 - **畫面：** `GET /api/state` 的 `screen: "home" | "playing"` 為準（可選保留 `needs_setup: screen !== "playing"`）。主頁：開始新故事／載入存檔。遊玩中：對局 UI、回主頁、刪除此世界（確認字 `delete`）。
 - **Pointer：** `kb/worlds/current.json` `{ id }`。僅 playing 有效。Turn／Writer／compact／對局 session 只打 pointer 那份 uuid。
-- **新 process 啟動：** `bootWorlds` 刪 `current.json` → 一律主頁，不自動 continue。同 process 內 F5 仍認 pointer。
+- **新 process 啟動：** `bootWorlds` 刪當時 pointer 的 `pending.json`（若有）再刪 `current.json` → 一律主頁，不自動 continue。同 process 內 F5 仍認 pointer；若仍 pending 則還原待判決。
 - **可玩：** 有效 `world.json`；custom 尚須非空 `gm_canon.md`；且 `world.json` 合法且 `id`＝目錄名（含 `save_name`）。半套不列出、load 409。
 - **Default 對局 system**＝`prompts/gm-contract.md` + `gm-default.md` + **該 uuid** NPC `persona` 區塊。
 - **Custom 對局 system**＝契約前綴 + 該 uuid `gm_canon.md` + runtime NPC `persona`。禁止把整份舊 `gm.md` 當 custom 前綴。禁止讀 repo `npc-*.md` 或 seed 組對局 prompt。
-- **`disposePlaySession`**：home／setup／load／delete 前只釋放。**`createPlaySession`**：setup 成功後。**`openLoadedPlaySession`**：load 後（有 jsonl 則 continue）。
+- **`disposePlaySession`**：home／setup／load／delete 前只釋放（對局＋meta）。**`createPlaySession`**：setup 成功後。**`openLoadedPlaySession`**：load 後（有 jsonl 則 continue）。
+- **`POST /api/home`**：dispose + 刪本場 `pending.json` + 清 pointer；保留 `player-memory/current.json`。
 - **自動開場：** setup 成功、或 load 時零 episode → `runOpeningTurnIfNeeded`（隱含中性句「我環顧四周。」、不進 UI 氣泡；不假設門／室內）；回應 `opening`。已有 episode 不重跑。`setupDefaultForTest` 不跑開場。
 - Setup 必帶 `save_name`（同時為 UI title／清單名；寫入 `world.json`；不進 GM）。parent 已有其他可玩 uuid **不得**擋開新。
 - `POST /api/new-game` 語意＝`POST /api/home`（dispose + 清 pointer；**不清**其他 uuid）。
@@ -74,9 +75,10 @@ kb/worlds/        # 多世界 parent（gitignore）；current.json + {uuid}/ 完
 docs/             # handover、brainstorm、roadmap
 ```
 
-- 每存檔：`kb/worlds/{uuid}/`＝昔日一份 runtime（`world.json` 含 id／save_name、entities、play-sessions、npc-memory 等）。
+- 每存檔：`kb/worlds/{uuid}/`＝昔日一份 runtime（`world.json` 含 id／save_name、entities、play-sessions、npc-memory、`player-memory/`、`gm-meta-sessions/` 等）。
 - **開場卡司**只在 `kb/seed/`（模板）與該 uuid。遊玩中冒出的角色 → Writer 寫該 uuid `entities.json`（預設 `memory_tier` 0），**不要**預寫 `prompts/npc-*.md`。Custom NPC 只進該 uuid，setup **不**建 `l2/`。
 - `npc-memory/`：`pool.json`（L0／L1）、`dirty-set.json`、`l2/{npc_id}/current.json`、`l2/{npc_id}/psyche.json`（僅 L2）；成功 compact 才寫 `l2/{id}/archive/`（summary＋locator；**無** `salient_quotes`）。L2 current **不**截 800。刪世界＝recursive 刪該 uuid；回主頁不清目錄。
+- `player-memory/`：`current.json` `{ body }`（已承認事實／能力，UTF-16 800 clip）；待決時另有 `pending.json`。不進 `npc-memory/`、不套 L2 psyche。刪世界＝連同該目錄；回主頁只刪 pending。
 - 測試必須用 `VIBE_GAMEVERSE_KB_WORLDS`（parent；見 `program/test-runtime-env.ts`）。舊鍵 `VIBE_GAMEVERSE_KB_RUNTIME` **忽略**。**禁止** `rm` 專案 live `kb/runtime` 或 `kb/worlds`。
 - 舊 `kb/runtime/`：**不讀、不搬、不自動刪**。
 - Legacy `pi-sessions/`→`play-sessions/`：僅在該 uuid **首次**成 pointer 時改名一次。
@@ -86,6 +88,7 @@ docs/             # handover、brainstorm、roadmap
 
 - 開頁若 `screen === "home"`：主頁；無對局氣泡；`world`／`scene` 為 null。
 - 對局等待 `POST /api/turn` 期間：輸入列可見「處理中」＋ spinner（非 streaming；非 setup「生成中…」）；回來後立刻撤。
+- 待決裁決：輸入列改「行為待判決」（**取代** busy，禁止兩套）；故事輸入 disable；GM 側欄展開。玩家氣泡僅故事 GM 成功後寫入 `#log`。`POST /api/gm-chat` 推進 meta；無 pending 時該 API 409。待決不鎖回主頁／刪世界。
 - 「**重開畫面**」：只清 DOM 氣泡；KB 與 pi session 仍在。重整／HMR 也會清畫面，不清 KB（同 process 仍認 pointer）。
 - 「**回到主頁**」：`POST /api/home`；dispose + 清 pointer；不清 uuid。
 - 「**刪除此世界**」：dialog 輸入 `delete` → `POST /api/worlds/delete`。

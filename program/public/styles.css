@@ -120,3 +120,48 @@ button:disabled {
 button.danger { background: #3a2420; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .err { color: #e08a7a; }
+#gm-chat-dock {
+  position: fixed;
+  right: 1rem;
+  bottom: 1.25rem;
+  z-index: 8;
+}
+#gm-chat-toggle {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  padding: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+#gm-chat-panel {
+  position: absolute;
+  right: 0;
+  bottom: 3.1rem;
+  width: min(320px, calc(100vw - 2rem));
+  max-height: 22rem;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  padding: 0.6rem 0.7rem 0.75rem;
+}
+#gm-chat-panel[hidden] { display: none; }
+.gm-chat-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.gm-chat-log {
+  overflow: auto;
+  min-height: 6rem;
+  max-height: 12rem;
+  margin-bottom: 0.5rem;
+}
+.gm-chat-log .bubble { margin: 0 0 0.55rem; }
+#gm-chat-form textarea {
+  width: 100%;
+  margin-bottom: 0.4rem;
+}
+#play { position: relative; }
+

@@ -6,6 +6,14 @@ const restartBtn = document.getElementById("restart");
 const goHomeBtn = document.getElementById("go-home");
 const deleteWorldBtn = document.getElementById("delete-world");
 const turnBusyEl = document.getElementById("turn-busy");
+const turnBusyLabel = document.getElementById("turn-busy-label");
+const turnSpinner = document.getElementById("turn-spinner");
+const gmChatToggle = document.getElementById("gm-chat-toggle");
+const gmChatPanel = document.getElementById("gm-chat-panel");
+const gmChatLog = document.getElementById("gm-chat-log");
+const gmChatForm = document.getElementById("gm-chat-form");
+const gmChatInput = document.getElementById("gm-chat-input");
+const gmChatSend = document.getElementById("gm-chat-send");
 const meta = document.getElementById("meta");
 const heading = document.getElementById("heading");
 const homeEl = document.getElementById("home");
@@ -29,6 +37,8 @@ const deleteMsg = document.getElementById("delete-msg");
 
 let sceneId = null;
 let worldTitle = null;
+let adjudicationPending = false;
+let gmChatOpen = false;
 
 function add(who, text, cls) {
   const div = document.createElement("div");
@@ -87,6 +97,9 @@ function showHome() {
   homeEl.hidden = false;
   playEl.hidden = true;
   input.disabled = true;
+  adjudicationPending = false;
+  setGmChatOpen(false);
+  renderGmChat([]);
   setNeutralChrome();
 }
 
@@ -99,6 +112,95 @@ function showPlay(title) {
   goHomeBtn.disabled = false;
   deleteWorldBtn.disabled = false;
   setWorldChrome(title);
+}
+
+function renderGmChat(messages) {
+  gmChatLog.innerHTML = "";
+  for (const m of messages || []) {
+    const div = document.createElement("div");
+    div.className = `bubble ${m.role === "player" ? "you" : "npc"}`;
+    div.innerHTML = `<div class="who"></div><div class="text"></div>`;
+    div.querySelector(".who").textContent = m.role === "player" ? "你" : "GM";
+    div.querySelector(".text").textContent = m.text || "";
+    gmChatLog.appendChild(div);
+  }
+  gmChatLog.lastElementChild?.scrollIntoView({ block: "end" });
+}
+
+function setGmChatOpen(open) {
+  gmChatOpen = open;
+  gmChatPanel.hidden = !open;
+  gmChatToggle.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function applyAdjudicationChrome() {
+  const pending = adjudicationPending;
+  gmChatInput.disabled = !pending;
+  gmChatSend.disabled = !pending;
+  if (!pending) {
+    gmChatInput.placeholder = "待裁決時可在此回覆 GM";
+    return;
+  }
+  gmChatInput.placeholder = "回覆 GM…";
+  turnBusyEl.hidden = false;
+  form.setAttribute("aria-busy", "true");
+  turnBusyLabel.textContent = "行為待判決";
+  turnSpinner.hidden = true;
+  input.disabled = true;
+  sendBtn.disabled = true;
+  restartBtn.disabled = false;
+  goHomeBtn.disabled = false;
+  deleteWorldBtn.disabled = false;
+  setGmChatOpen(true);
+}
+
+function showStoryGm(gm, playerText) {
+  if (playerText) add("你", playerText, "you");
+  if (!gm) return;
+  if (gm.narration) add("敘事", gm.narration, "narration");
+  for (const line of gm.npc_lines || []) {
+    add(line.name || line.npc_id, line.text, "npc");
+  }
+}
+
+/** 對局 turn 等待中 UI（勿與 setSetupBusy 混用；勿用於 gm-chat）。 */
+function setTurnBusy(busy) {
+  if (busy) {
+    adjudicationPending = false;
+    turnBusyEl.hidden = false;
+    form.setAttribute("aria-busy", "true");
+    turnBusyLabel.textContent = "處理中";
+    turnSpinner.hidden = false;
+    input.disabled = true;
+    sendBtn.disabled = true;
+    restartBtn.disabled = true;
+    goHomeBtn.disabled = true;
+    deleteWorldBtn.disabled = true;
+    if (!debugPanel.hidden) debugCompactBtn.disabled = true;
+    return;
+  }
+  if (!isPlayingVisible()) {
+    turnBusyEl.hidden = true;
+    form.removeAttribute("aria-busy");
+    input.disabled = true;
+    return;
+  }
+  if (adjudicationPending) {
+    applyAdjudicationChrome();
+    return;
+  }
+  turnBusyEl.hidden = true;
+  form.removeAttribute("aria-busy");
+  turnBusyLabel.textContent = "處理中";
+  turnSpinner.hidden = false;
+  input.disabled = false;
+  sendBtn.disabled = false;
+  restartBtn.disabled = false;
+  goHomeBtn.disabled = false;
+  deleteWorldBtn.disabled = false;
+  if (!debugPanel.hidden) debugCompactBtn.disabled = false;
+  applyAdjudicationChrome();
+  input.focus();
 }
 
 function applyMeta(s) {
@@ -125,34 +227,6 @@ function isPlayingVisible() {
   return !playEl.hidden;
 }
 
-/** 對局 turn 等待中 UI（勿與 setSetupBusy 混用）。 */
-function setTurnBusy(busy) {
-  if (busy) {
-    turnBusyEl.hidden = false;
-    form.setAttribute("aria-busy", "true");
-    input.disabled = true;
-    sendBtn.disabled = true;
-    restartBtn.disabled = true;
-    goHomeBtn.disabled = true;
-    deleteWorldBtn.disabled = true;
-    if (!debugPanel.hidden) debugCompactBtn.disabled = true;
-    return;
-  }
-  turnBusyEl.hidden = true;
-  form.removeAttribute("aria-busy");
-  if (!isPlayingVisible()) {
-    input.disabled = true;
-    return;
-  }
-  input.disabled = false;
-  sendBtn.disabled = false;
-  restartBtn.disabled = false;
-  goHomeBtn.disabled = false;
-  deleteWorldBtn.disabled = false;
-  if (!debugPanel.hidden) debugCompactBtn.disabled = false;
-  input.focus();
-}
-
 function readSaveName() {
   return (saveNameInput.value || "").trim();
 }
@@ -165,6 +239,8 @@ async function enterReady(s, { greet = false, opening = null } = {}) {
   sceneId = s.scene?.scene_id ?? null;
   showPlay(s.world.save_name || s.save?.save_name);
   applyMeta(s);
+  adjudicationPending = s.adjudication?.status === "pending";
+  renderGmChat(s.gm_chat?.messages || []);
   if (greet || opening?.gm) {
     log.innerHTML = "";
     if (opening?.gm) {
@@ -177,6 +253,12 @@ async function enterReady(s, { greet = false, opening = null } = {}) {
       const name = s.world?.save_name || s.save?.save_name || "";
       add("系統", name ? `世界：${name}。隨便說一句。` : "隨便說一句。", "narration");
     }
+  }
+  if (adjudicationPending) {
+    applyAdjudicationChrome();
+  } else {
+    setGmChatOpen(false);
+    applyAdjudicationChrome();
   }
 }
 
@@ -204,9 +286,9 @@ async function hydrate({ greetIfReady = true } = {}) {
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (adjudicationPending) return;
   const player_text = input.value.trim();
   if (!player_text) return;
-  add("你", player_text, "you");
   input.value = "";
   setTurnBusy(true);
   try {
@@ -224,13 +306,27 @@ form.addEventListener("submit", async (e) => {
         await hydrate({ greetIfReady: false });
         return;
       }
+      if (data.error === "adjudication_pending") {
+        const s = await fetchState();
+        adjudicationPending = true;
+        renderGmChat(s.gm_chat?.messages || []);
+        return;
+      }
       if (!isPlayingVisible()) return;
       throw new Error(data.error || res.statusText);
     }
     if (!isPlayingVisible()) return;
-    add("敘事", data.gm.narration, "narration");
-    for (const line of data.gm.npc_lines) {
-      add(line.name || line.npc_id, line.text, "npc");
+    if (data.hard_reject) {
+      add("系統", data.notice || "此輸入無法進入本場。", "err");
+      return;
+    }
+    if (data.adjudication?.status === "pending") {
+      adjudicationPending = true;
+      renderGmChat(data.gm_chat?.messages || []);
+      return;
+    }
+    if (data.gm) {
+      showStoryGm(data.gm, player_text);
     }
     const s = await fetchState();
     sceneId = s.scene?.scene_id ?? sceneId;
@@ -262,6 +358,10 @@ restartBtn.addEventListener("click", async () => {
   const s = await fetchState();
   sceneId = s.scene?.scene_id ?? sceneId;
   applyMeta(s);
+  adjudicationPending = s.adjudication?.status === "pending";
+  renderGmChat(s.gm_chat?.messages || []);
+  if (adjudicationPending) applyAdjudicationChrome();
+  else setGmChatOpen(false);
 });
 
 debugCompactBtn.addEventListener("click", async () => {
@@ -427,6 +527,69 @@ customForm.addEventListener("submit", async (e) => {
     setupMsg.textContent = String(err.message || err);
   } finally {
     setSetupBusy(false);
+  }
+});
+
+gmChatToggle.addEventListener("click", () => {
+  setGmChatOpen(gmChatPanel.hidden);
+});
+
+gmChatForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!adjudicationPending) return;
+  const text = gmChatInput.value.trim();
+  if (!text) return;
+  gmChatInput.value = "";
+  gmChatInput.disabled = true;
+  gmChatSend.disabled = true;
+  try {
+    const res = await fetch("/api/gm-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    if (!isPlayingVisible()) return;
+    if (!res.ok) {
+      if (data.error === "not_playing" || data.needs_setup) {
+        log.innerHTML = "";
+        await hydrate({ greetIfReady: false });
+        return;
+      }
+      throw new Error(data.error || res.statusText);
+    }
+    renderGmChat(data.gm_chat?.messages || []);
+    if (data.hard_reject) {
+      adjudicationPending = false;
+      setGmChatOpen(false);
+      add("系統", data.notice || "此輸入無法進入本場。", "err");
+      setTurnBusy(false);
+      return;
+    }
+    if (data.adjudication?.status === "pending") {
+      adjudicationPending = true;
+      applyAdjudicationChrome();
+      return;
+    }
+    adjudicationPending = false;
+    setGmChatOpen(false);
+    if (data.gm) {
+      const s = await fetchState();
+      const last = (s.chat_tail || []).at(-1);
+      showStoryGm(data.gm, last?.player_text);
+      sceneId = s.scene?.scene_id ?? sceneId;
+      applyMeta(s);
+    }
+    setTurnBusy(false);
+  } catch (err) {
+    if (!isPlayingVisible()) return;
+    add("錯誤", String(err.message || err), "err");
+    if (adjudicationPending) applyAdjudicationChrome();
+  } finally {
+    if (adjudicationPending) {
+      gmChatInput.disabled = false;
+      gmChatSend.disabled = false;
+    }
   }
 });
 

@@ -16,6 +16,8 @@ import {
   L2CurrentSchema,
   NpcPsycheSchema,
   NpcPoolSchema,
+  PlayerMemorySchema,
+  AdjudicationPendingSchema,
   RelationSchema,
   SaveMetaSchema,
   saveMetaFromWorld,
@@ -33,6 +35,8 @@ import {
   type NpcPsycheFields,
   type MemorySlice,
   type NpcPool,
+  type PlayerMemory,
+  type AdjudicationPending,
   type Primer,
   type Relation,
   type SaveMeta,
@@ -40,6 +44,8 @@ import {
   type World,
   emptyNpcPsyche,
   clipNpcPsyche,
+  clipUtf16,
+  PLAYER_MEMORY_BODY_MAX,
 } from "./schema.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -58,8 +64,12 @@ export let playSessionsDir = join(kbRuntimeDir, "play-sessions");
 export let sessionArchiveDir = join(kbRuntimeDir, "session-archive");
 export let compactScratchDir = join(kbRuntimeDir, "compact-scratch");
 export let compactStatePath = join(kbRuntimeDir, "compact-state.json");
+export let playerMemoryDir = join(kbRuntimeDir, "player-memory");
+export let gmMetaSessionsDir = join(kbRuntimeDir, "gm-meta-sessions");
 let legacyPiSessionsDir = join(kbRuntimeDir, "pi-sessions");
 let activeWorldId: string | null = null;
+/** home／delete／load 遞增；進行中 gm-chat 對不上則放棄落盤。 */
+let abandonGeneration = 0;
 
 const paths = {
   episodes: join(kbRuntimeDir, "episodes.json"),
@@ -81,6 +91,8 @@ function rebindRuntimePaths(dir: string): void {
   sessionArchiveDir = join(kbRuntimeDir, "session-archive");
   compactScratchDir = join(kbRuntimeDir, "compact-scratch");
   compactStatePath = join(kbRuntimeDir, "compact-state.json");
+  playerMemoryDir = join(kbRuntimeDir, "player-memory");
+  gmMetaSessionsDir = join(kbRuntimeDir, "gm-meta-sessions");
   legacyPiSessionsDir = join(kbRuntimeDir, "pi-sessions");
   paths.episodes = join(kbRuntimeDir, "episodes.json");
   paths.chatTail = join(kbRuntimeDir, "chat-tail.json");
@@ -143,6 +155,93 @@ export function l2CurrentPath(npcId: string): string {
 
 export function l2PsychePath(npcId: string): string {
   return join(npcMemoryDir, "l2", npcId, "psyche.json");
+}
+
+export function currentAbandonGeneration(): number {
+  return abandonGeneration;
+}
+
+export function bumpAbandonGeneration(): number {
+  abandonGeneration += 1;
+  return abandonGeneration;
+}
+
+export function playerMemoryPath(): string {
+  return join(playerMemoryDir, "current.json");
+}
+
+export function pendingPath(): string {
+  return join(playerMemoryDir, "pending.json");
+}
+
+export async function loadPlayerMemoryAt(id: string): Promise<PlayerMemory> {
+  try {
+    const raw = JSON.parse(await readFile(join(worldDir(id), "player-memory", "current.json"), "utf8"));
+    const parsed = PlayerMemorySchema.safeParse(raw);
+    if (!parsed.success) return { body: "" };
+    return { body: clipUtf16(parsed.data.body, PLAYER_MEMORY_BODY_MAX) };
+  } catch {
+    return { body: "" };
+  }
+}
+
+export async function savePlayerMemoryAt(id: string, mem: PlayerMemory): Promise<void> {
+  const dir = join(worldDir(id), "player-memory");
+  await mkdir(dir, { recursive: true });
+  const body = clipUtf16(mem.body, PLAYER_MEMORY_BODY_MAX);
+  await writeFile(join(dir, "current.json"), JSON.stringify({ body }, null, 2));
+}
+
+export async function loadPlayerMemory(): Promise<PlayerMemory> {
+  if (activeWorldId == null) return { body: "" };
+  return loadPlayerMemoryAt(activeWorldId);
+}
+
+export async function savePlayerMemory(mem: PlayerMemory): Promise<void> {
+  if (activeWorldId == null) return;
+  await savePlayerMemoryAt(activeWorldId, mem);
+}
+
+export async function appendPlayerMemoryPatchAt(id: string, patch: string): Promise<string> {
+  const prev = (await loadPlayerMemoryAt(id)).body;
+  const next = prev.trim() ? `${prev.replace(/\s+$/, "")}\n${patch.trim()}` : patch.trim();
+  await savePlayerMemoryAt(id, { body: next });
+  return prev;
+}
+
+export async function appendPlayerMemoryPatch(patch: string): Promise<string> {
+  if (activeWorldId == null) return "";
+  return appendPlayerMemoryPatchAt(activeWorldId, patch);
+}
+
+export async function loadPending(): Promise<AdjudicationPending | null> {
+  if (activeWorldId == null) return null;
+  try {
+    const raw = JSON.parse(await readFile(pendingPath(), "utf8"));
+    const parsed = AdjudicationPendingSchema.safeParse(raw);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function savePending(pending: AdjudicationPending): Promise<void> {
+  if (activeWorldId == null) return;
+  await mkdir(playerMemoryDir, { recursive: true });
+  await writeFile(pendingPath(), JSON.stringify(pending, null, 2));
+}
+
+export async function deletePending(): Promise<void> {
+  if (activeWorldId == null) return;
+  await rm(pendingPath(), { force: true });
+}
+
+async function deletePendingAtWorld(id: string): Promise<void> {
+  await rm(join(worldDir(id), "player-memory", "pending.json"), { force: true });
+}
+
+export async function emptyPlayerMemoryFile(): Promise<string> {
+  return JSON.stringify({ body: "" }, null, 2);
 }
 
 const PLAYTHROUGH_FILES = [
@@ -374,6 +473,10 @@ export async function migratePlaySessionDir(): Promise<void> {
  */
 export async function bootWorlds(): Promise<void> {
   await mkdir(kbWorldsDir, { recursive: true });
+  const id = await readPointerId();
+  if (id && WORLD_UUID_RE.test(id)) {
+    await deletePendingAtWorld(id);
+  }
   await clearPointer();
 }
 
@@ -404,6 +507,8 @@ export async function clearPlaythrough(): Promise<void> {
   await rm(compactScratchDir, { recursive: true, force: true });
   await rm(compactStatePath, { force: true });
   await rm(npcMemoryDir, { recursive: true, force: true });
+  await rm(playerMemoryDir, { recursive: true, force: true });
+  await rm(gmMetaSessionsDir, { recursive: true, force: true });
 }
 
 /** Clear active uuid internals only (does not delete uuid dir or siblings). */
@@ -493,6 +598,7 @@ export async function commitDefaultWorld(saveName: string): Promise<{ world: Wor
       "npc-memory/l2/ash/psyche.json",
       JSON.stringify({ npc_id: "ash", ...DEFAULT_L2_PSYCHE.ash }, null, 2),
     ],
+    ["player-memory/current.json", JSON.stringify({ body: "" }, null, 2)],
   ]);
   await atomicCommitPlaythrough(files, id);
   await setActiveWorld(id);
@@ -529,6 +635,7 @@ export async function commitCustomWorld(
     ["world.json", JSON.stringify(world, null, 2)],
     ["npc-memory/pool.json", JSON.stringify(EMPTY_NPC_POOL, null, 2)],
     ["npc-memory/dirty-set.json", JSON.stringify(EMPTY_DIRTY_SET, null, 2)],
+    ["player-memory/current.json", JSON.stringify({ body: "" }, null, 2)],
   ]);
   await atomicCommitPlaythrough(files, id);
   await setActiveWorld(id);

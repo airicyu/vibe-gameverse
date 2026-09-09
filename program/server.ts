@@ -9,6 +9,7 @@ import {
   loadChatTail,
   loadEpisodes,
   loadGmNote,
+  loadPending,
   loadRelations,
   loadScene,
   syncWorldGate,
@@ -24,6 +25,7 @@ import {
   setupDefault,
 } from "./setup.ts";
 import { runTurn } from "./turn.ts";
+import { runGmChat } from "./gm-meta.ts";
 import { getAppConfig } from "./config.ts";
 
 await getAppConfig();
@@ -64,9 +66,16 @@ const server = Bun.serve({
         const playing = screen === "playing";
         const gate = await syncWorldGate();
         const save = playing ? await loadActiveSave() : null;
-        const [gm_note, episodes, chat_tail, relations, scene] = playing
-          ? await Promise.all([loadGmNote(), loadEpisodes(), loadChatTail(), loadRelations(), loadScene()])
-          : ["", [], [], [], null];
+        const [gm_note, episodes, chat_tail, relations, scene, pending] = playing
+          ? await Promise.all([
+              loadGmNote(),
+              loadEpisodes(),
+              loadChatTail(),
+              loadRelations(),
+              loadScene(),
+              loadPending(),
+            ])
+          : ["", [], [], [], null, null];
         return Response.json({
           screen,
           needs_setup: !playing,
@@ -81,7 +90,23 @@ const server = Bun.serve({
           relations: playing ? relations : [],
           gm_mode: gmMode,
           debug: getAppConfig().debug,
+          adjudication: playing && pending ? { status: "pending" } : playing ? null : null,
+          gm_chat: playing ? { messages: pending?.messages ?? [] } : { messages: [] },
         });
+      },
+    },
+
+    "/api/gm-chat": {
+      POST: async (req) => {
+        const body: unknown = await req.json();
+        turnLog("http", "POST /api/gm-chat");
+        try {
+          return Response.json(await runGmChat(body));
+        } catch (err) {
+          if (err instanceof HttpError) return jsonError(err);
+          turnLog("http", `gm-chat failed  ${err instanceof Error ? err.message : String(err)}`);
+          throw err;
+        }
       },
     },
 

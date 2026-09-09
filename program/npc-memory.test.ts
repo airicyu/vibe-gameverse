@@ -488,6 +488,7 @@ test("runTurn HTTP result has no npc_memories key", async () => {
   const result = await runTurn({ player_text: "你好" });
   expect("npc_memories" in result).toBe(false);
   expect("archive_excerpts" in result).toBe(false);
+  expect("player_memory" in result).toBe(false);
 });
 
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 
 process.env.VIBE_GAMEVERSE_KB_WORLDS = mkdtempSync(join(tmpdir(), "vibe-gameverse-worlds-"));
 process.env.VIBE_GAMEVERSE_LOG = join(process.env.VIBE_GAMEVERSE_KB_WORLDS, "server.log");
-if (!process.env.GM_MODE) process.env.GM_MODE = "mock";
+process.env.GM_MODE = "mock";
 if (!process.env.VIBE_GAMEVERSE_CONFIG) {
   const cfgDir = mkdtempSync(join(tmpdir(), "vibe-gameverse-cfg-"));
   const cfgPath = join(cfgDir, "config.yaml");

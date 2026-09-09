@@ -47,6 +47,33 @@ function mockCustomGm(ctx: GmContext): GmOutput {
 }
 
 export function mockGm(ctx: GmContext, world?: World | null): GmOutput {
+  if (ctx.split_constraint?.trim()) {
+    const custom =
+      world?.source === "custom" || (world?.source !== "default" && ctx.scene.scene_id !== "tavern");
+    const npcId = custom
+      ? (ctx.scene.present.find((id) => id !== "player") ?? "keeper")
+      : "bartender";
+    const ent = ctx.memory_slice.entities.find((e) => e.id === npcId);
+    const name = ent?.name ?? (custom ? npcId : "瑪拉");
+    return {
+      narration: "你想把場面扭成不可能的結果，但身體只完成了合理的那一步，越界的部分落空了。",
+      npc_lines: [{ npc_id: npcId, name, text: "……你想得倒美。這裡還輪不到你改規則。" }],
+      events: [
+        {
+          actors: ["player", npcId],
+          action: "overreach_attempt",
+          result: "failed_attempt",
+          summary: "玩家試圖越界，僅合理嘗試成立，過線未發生",
+          entity_ids: [npcId, "player"],
+        },
+      ],
+      gm_note: ctx.gm_note.slice(0, 800) || "本場進行中。",
+      scene: ctx.scene,
+      ui: null,
+      needs_image: false,
+    };
+  }
+
   const custom =
     world?.source === "custom" || (world?.source !== "default" && ctx.scene.scene_id !== "tavern");
   if (custom) return mockCustomGm(ctx);
