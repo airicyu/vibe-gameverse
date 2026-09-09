@@ -1,6 +1,6 @@
 # vibe-gameverse — Agent Context
 
-本檔給 coding agent 開工用。規格起點：`docs/handover.md`、`docs/brainstorm.md`。不要重新大開腦暴，除非 Eric 明確要求改定案。現行版本：**0.8.0**（`VERSION.md`、`changelog.md`）。契約：[0.8.0 角色記憶：情景摘要與定位](docs/roadmap/0.8.0/INDEX.md)。上游已出貨：[0.7.0 多世界存檔](docs/roadmap/0.7.0/INDEX.md)。未排程構想：`docs/roadmap/backlog/`。
+本檔給 coding agent 開工用。規格起點：`docs/handover.md`、`docs/brainstorm.md`。不要重新大開腦暴，除非 Eric 明確要求改定案。現行版本：**0.9.0**（`VERSION.md`、`changelog.md`）。契約：[0.9.0 回合處理中 UI](docs/roadmap/0.9.0/INDEX.md)。上游：[0.8.0 角色記憶](docs/roadmap/0.8.0/INDEX.md)；[0.7.0 多世界存檔](docs/roadmap/0.7.0/INDEX.md)。未排程構想：`docs/roadmap/backlog/`。
 
 ## 語言（強制）
 
@@ -85,6 +85,7 @@ docs/             # handover、brainstorm、roadmap
 ## UI 與 session
 
 - 開頁若 `screen === "home"`：主頁；無對局氣泡；`world`／`scene` 為 null。
+- 對局等待 `POST /api/turn` 期間：輸入列可見「處理中」＋ spinner（非 streaming；非 setup「生成中…」）；回來後立刻撤。
 - 「**重開畫面**」：只清 DOM 氣泡；KB 與 pi session 仍在。重整／HMR 也會清畫面，不清 KB（同 process 仍認 pointer）。
 - 「**回到主頁**」：`POST /api/home`；dispose + 清 pointer；不清 uuid。
 - 「**刪除此世界**」：dialog 輸入 `delete` → `POST /api/worlds/delete`。

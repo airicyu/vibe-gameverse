@@ -1,6 +1,7 @@
 # 0.8.0 角色記憶：情景摘要與定位（廢對白金句）
 
 - 上游：[0.7.0 多世界存檔](../0.7.0/INDEX.md)（`in progress`；本版假設 worlds／pointer 已可玩）
+- 下一版：[0.9.0 回合處理中 UI](../0.9.0/INDEX.md)（`in progress`；不依賴本版出貨）
 - 構想來源：原 `backlog/memory-situations.md`（出貨後已刪；**契約以本 INDEX＋docs 為準**）
 - Changelog：根目錄 [`changelog.md`](../../../changelog.md)；同步 `VERSION.md` 與 `AGENTS.md`
 - 狀態：`in progress`

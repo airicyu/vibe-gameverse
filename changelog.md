@@ -4,6 +4,25 @@
 
 ---
 
+## 0.9.0 — 回合處理中 UI（2026-09-09）
+
+對局送出一句、`POST /api/turn` 尚未回來時，輸入列可見「處理中」＋簡易 spinner；busy 期間鎖輸入、送出與次要控件。回來後立刻撤掉。不改回合契約、不做 streaming。見 `docs/roadmap/0.9.0/`。
+
+### Added
+
+- 對局 `#form` 內 busy 列（「處理中」＋ CSS spinner）；`setTurnBusy` 設／`finally` 撤
+- busy 期間 disable `#send`／`#go-home`／`#restart`／`#delete-world`（及可見 `#debug-compact`）
+
+### Changed
+
+- `showPlay` 進入對局時恢復送出與次要控件可點（避免回主頁後殘留 disabled）
+
+### Non-goals
+
+- Streaming、進度百分比、取消 turn、改 setup「生成中…」、改 debug compact 文案、改 `POST /api/turn` 契約
+
+---
+
 ## 0.8.0 — 角色記憶：情景摘要與定位（2026-09-09）
 
 廢 `salient_quotes` 與 session jsonl 剪句餵 GM。過去＝情景 summary + locator。回想新增閘門（iii）：點名 L2＋有 archive 即可掃（不要求 present／不要求名缺席近 8 episode）。對白全文只在 `session-archive` jsonl。不 hop。不改 0.6.0 compact scope。見 `docs/roadmap/0.8.0/`。

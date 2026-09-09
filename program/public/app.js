@@ -1,6 +1,11 @@
 const log = document.getElementById("log");
 const form = document.getElementById("form");
 const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const restartBtn = document.getElementById("restart");
+const goHomeBtn = document.getElementById("go-home");
+const deleteWorldBtn = document.getElementById("delete-world");
+const turnBusyEl = document.getElementById("turn-busy");
 const meta = document.getElementById("meta");
 const heading = document.getElementById("heading");
 const homeEl = document.getElementById("home");
@@ -89,6 +94,10 @@ function showPlay(title) {
   homeEl.hidden = true;
   playEl.hidden = false;
   input.disabled = false;
+  sendBtn.disabled = false;
+  restartBtn.disabled = false;
+  goHomeBtn.disabled = false;
+  deleteWorldBtn.disabled = false;
   setWorldChrome(title);
 }
 
@@ -110,6 +119,38 @@ function setSetupBusy(busy) {
   setupCustomSubmit.disabled = busy;
   saveNameInput.disabled = busy;
   setupMsg.textContent = busy ? "生成中…" : "";
+}
+
+function isPlayingVisible() {
+  return !playEl.hidden;
+}
+
+/** 對局 turn 等待中 UI（勿與 setSetupBusy 混用）。 */
+function setTurnBusy(busy) {
+  if (busy) {
+    turnBusyEl.hidden = false;
+    form.setAttribute("aria-busy", "true");
+    input.disabled = true;
+    sendBtn.disabled = true;
+    restartBtn.disabled = true;
+    goHomeBtn.disabled = true;
+    deleteWorldBtn.disabled = true;
+    if (!debugPanel.hidden) debugCompactBtn.disabled = true;
+    return;
+  }
+  turnBusyEl.hidden = true;
+  form.removeAttribute("aria-busy");
+  if (!isPlayingVisible()) {
+    input.disabled = true;
+    return;
+  }
+  input.disabled = false;
+  sendBtn.disabled = false;
+  restartBtn.disabled = false;
+  goHomeBtn.disabled = false;
+  deleteWorldBtn.disabled = false;
+  if (!debugPanel.hidden) debugCompactBtn.disabled = false;
+  input.focus();
 }
 
 function readSaveName() {
@@ -167,7 +208,7 @@ form.addEventListener("submit", async (e) => {
   if (!player_text) return;
   add("你", player_text, "you");
   input.value = "";
-  input.disabled = true;
+  setTurnBusy(true);
   try {
     const body = { player_text };
     if (sceneId) body.scene_id = sceneId;
@@ -181,10 +222,12 @@ form.addEventListener("submit", async (e) => {
       if (data.error === "not_playing" || data.needs_setup) {
         log.innerHTML = "";
         await hydrate({ greetIfReady: false });
-        throw new Error("已不在對局中，已回到主頁");
+        return;
       }
+      if (!isPlayingVisible()) return;
       throw new Error(data.error || res.statusText);
     }
+    if (!isPlayingVisible()) return;
     add("敘事", data.gm.narration, "narration");
     for (const line of data.gm.npc_lines) {
       add(line.name || line.npc_id, line.text, "npc");
@@ -193,10 +236,10 @@ form.addEventListener("submit", async (e) => {
     sceneId = s.scene?.scene_id ?? sceneId;
     applyMeta(s);
   } catch (err) {
+    if (!isPlayingVisible()) return;
     add("錯誤", String(err.message || err), "err");
   } finally {
-    input.disabled = false;
-    input.focus();
+    setTurnBusy(false);
   }
 });
 
@@ -208,7 +251,7 @@ input.addEventListener("keydown", (e) => {
   form.requestSubmit();
 });
 
-document.getElementById("restart").addEventListener("click", async () => {
+restartBtn.addEventListener("click", async () => {
   log.innerHTML = "";
   const title = worldTitle || "這一局";
   add(
@@ -241,7 +284,7 @@ debugCompactBtn.addEventListener("click", async () => {
   }
 });
 
-document.getElementById("go-home").addEventListener("click", async () => {
+goHomeBtn.addEventListener("click", async () => {
   const res = await fetch("/api/home", { method: "POST" });
   const data = await res.json();
   if (!res.ok) {
@@ -254,7 +297,7 @@ document.getElementById("go-home").addEventListener("click", async () => {
   await hydrate({ greetIfReady: false });
 });
 
-document.getElementById("delete-world").addEventListener("click", () => {
+deleteWorldBtn.addEventListener("click", () => {
   deleteConfirmInput.value = "";
   deleteMsg.textContent = "";
   deleteDialog.showModal();

@@ -85,6 +85,26 @@ dialog {
 }
 .custom-form label { display: grid; gap: 0.3rem; font-size: 0.85rem; color: var(--muted); }
 .row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+.turn-busy {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.turn-busy[hidden] { display: none; }
+.turn-spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid var(--line);
+  border-top-color: var(--npc);
+  border-radius: 50%;
+  animation: turn-spin 0.7s linear infinite;
+}
+@keyframes turn-spin {
+  to { transform: rotate(360deg); }
+}
 button {
   background: #4a3b2a;
   color: var(--ink);
@@ -92,6 +112,10 @@ button {
   padding: 0.4rem 0.8rem;
   font: inherit;
   cursor: pointer;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 button.danger { background: #3a2420; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

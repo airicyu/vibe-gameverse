@@ -74,6 +74,10 @@
         <form id="form">
           <label class="sr" for="input">你要做什麼</label>
           <textarea id="input" rows="2" placeholder="隨便說一句……（Enter 送出，Shift+Enter 換行）" required></textarea>
+          <div id="turn-busy" class="turn-busy" hidden aria-live="polite">
+            <span class="turn-spinner" aria-hidden="true"></span>
+            <span>處理中</span>
+          </div>
           <div class="row">
             <button type="submit" id="send">送出</button>
             <button type="button" id="restart" title="模擬重開 session：不清 KB，只刷新畫面，下一句會帶入 gm_note 與記憶切片">
